@@ -1,0 +1,26 @@
+name: collectionapp
+description: "A new Flutter project."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.6.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  hive: any # Removed version constraint
+  hive_flutter: any # Removed version constraint
+  path_provider: any # Removed version constraint
+  cupertino_icons: any # Removed version constraint
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  build_runner: any # Removed version constraint
+  hive_generator: any # Removed version constraint
+  flutter_lints: any # Removed version constraint
+  analyzer: any # Removed version constraint
+
+flutter:
+  uses-material-design: true
