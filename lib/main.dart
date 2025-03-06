@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'collection_model.dart';
-import 'settings_screen.dart'; // Import SettingsScreen
+import 'settings_screen.dart';
+import 'dart:convert';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
-  Hive.registerAdapter(CollectionDataAdapter());
-  await Hive.openBox<CollectionData>('collections');
-  await Hive.openBox<String>('settings'); // Open settings box
+  await Hive.openBox<String>('collections');
+  await Hive.openBox<String>('settings');
   runApp(MyApp());
 }
 
@@ -19,18 +19,43 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   int _selectedIndex = 1;
+  List<String> _fields = [];
 
-  void _onItemTapped(int index) {
+  @override
+  void initState() {
+    super.initState();
+    _loadFields();
+  }
+
+  void _loadFields() {
+    final settingsBox = Hive.box<String>('settings');
+    String? storedFields = settingsBox.get('fields');
     setState(() {
-      _selectedIndex = index;
+      _fields = storedFields != null
+          ? List<String>.from(jsonDecode(storedFields))
+          : ['Name', 'Mobile Number', 'Occupation', 'Address', 'Amount'];
     });
   }
 
-  final List<Widget> _screens = [
-    SettingsScreen(),
-    CollectionScreen(),
-    Scaffold(body: Center(child: Text('Reports Screen'))),
-  ];
+  void _onItemTapped(int index) async {
+    setState(() {
+      _selectedIndex = index;
+    });
+
+    if (index == 0) {
+      final updatedFields = await Navigator.push<List<String>>(
+        context,
+        MaterialPageRoute(builder: (context) => SettingsScreen()),
+      );
+      if (updatedFields != null) {
+        final settingsBox = Hive.box<String>('settings');
+        settingsBox.put('fields', jsonEncode(updatedFields));
+        setState(() {
+          _fields = updatedFields;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,9 +63,10 @@ class _MyAppState extends State<MyApp> {
       title: 'Collection App',
       theme: ThemeData(
         primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
       home: Scaffold(
-        body: _screens[_selectedIndex],
+        body: _buildBody(),
         bottomNavigationBar: BottomNavigationBar(
           items: const <BottomNavigationBarItem>[
             BottomNavigationBarItem(
@@ -50,62 +76,85 @@ class _MyAppState extends State<MyApp> {
                 icon: Icon(Icons.description), label: 'Reports'),
           ],
           currentIndex: _selectedIndex,
-          selectedItemColor: Colors.blue,
+          selectedItemColor: Colors.blueAccent,
           onTap: _onItemTapped,
+          backgroundColor: Colors.white,
+          elevation: 10,
         ),
       ),
     );
   }
+
+  Widget _buildBody() {
+    switch (_selectedIndex) {
+      case 0:
+        return SettingsScreen();
+      case 1:
+        return CollectionScreen(fields: _fields);
+      case 2:
+        return Center(
+            child: Text('Reports Screen',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)));
+      default:
+        return CollectionScreen(fields: _fields);
+    }
+  }
 }
 
 class CollectionScreen extends StatefulWidget {
+  final List<String> fields;
+
+  CollectionScreen({required this.fields});
+
   @override
   _CollectionScreenState createState() => _CollectionScreenState();
 }
 
 class _CollectionScreenState extends State<CollectionScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _mobileController = TextEditingController();
-  final _occupationController = TextEditingController();
-  final _addressController = TextEditingController();
-  final _amountController = TextEditingController();
-  final Box<CollectionData> collectionBox =
-      Hive.box<CollectionData>('collections');
+  final Map<String, TextEditingController> _controllers = {};
+  final Box<String> collectionBox = Hive.box<String>('collections');
+
+  @override
+  void initState() {
+    super.initState();
+    _updateControllers();
+  }
+
+  void _updateControllers() {
+    _controllers.clear();
+    for (var field in widget.fields) {
+      _controllers[field] = TextEditingController();
+    }
+  }
 
   void _saveData() {
     if (_formKey.currentState!.validate()) {
-      final data = CollectionData(
-        name: _nameController.text,
-        mobileNumber: _mobileController.text,
-        occupation: _occupationController.text,
-        address: _addressController.text,
-        amount: double.parse(_amountController.text),
-      );
-      collectionBox.add(data);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Data saved!')),
-      );
+      final Map<String, String> dataMap = {};
+      for (var field in widget.fields) {
+        dataMap[field] = _controllers[field]?.text ?? '';
+      }
+      collectionBox.put(DateTime.now().toString(), jsonEncode(dataMap));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Data saved!')));
       _resetForm();
-      setState(() {});
     }
   }
 
   void _resetForm() {
-    _formKey.currentState?.reset();
-    _nameController.clear();
-    _mobileController.clear();
-    _occupationController.clear();
-    _addressController.clear();
-    _amountController.clear();
+    setState(() {
+      for (var controller in _controllers.values) {
+        controller.clear();
+      }
+    });
   }
 
   void _deleteData(int index) {
-    collectionBox.deleteAt(index);
+    final key = collectionBox.keyAt(index);
+    collectionBox.delete(key);
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Data deleted!')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Data deleted!')));
   }
 
   @override
@@ -113,86 +162,78 @@ class _CollectionScreenState extends State<CollectionScreen> {
     return Scaffold(
       appBar: AppBar(title: Text('Collection')),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
         child: Column(
           children: [
             Form(
               key: _formKey,
               child: Column(
-                children: [
-                  TextFormField(
-                    controller: _nameController,
-                    decoration: InputDecoration(labelText: 'Enter Name'),
-                    validator: (value) =>
-                        value!.isEmpty ? 'Please enter a name' : null,
-                  ),
-                  TextFormField(
-                    controller: _mobileController,
-                    decoration:
-                        InputDecoration(labelText: 'Enter Mobile Number'),
-                    validator: (value) =>
-                        value!.isEmpty ? 'Please enter a mobile number' : null,
-                  ),
-                  TextFormField(
-                    controller: _occupationController,
-                    decoration: InputDecoration(labelText: 'Enter Occupation'),
-                    validator: (value) =>
-                        value!.isEmpty ? 'Please enter an occupation' : null,
-                  ),
-                  TextFormField(
-                    controller: _addressController,
-                    decoration: InputDecoration(labelText: 'Enter Address'),
-                    validator: (value) =>
-                        value!.isEmpty ? 'Please enter an address' : null,
-                  ),
-                  TextFormField(
-                    controller: _amountController,
-                    decoration: InputDecoration(labelText: 'Enter Amount'),
-                    keyboardType:
-                        TextInputType.numberWithOptions(decimal: true),
-                    validator: (value) =>
-                        value!.isEmpty ? 'Please enter an amount' : null,
-                  ),
-                  SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      ElevatedButton(
-                        onPressed: _resetForm,
-                        child: Text('Reset'),
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red),
+                children: widget.fields.map((field) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6.0),
+                    child: SizedBox(
+                      width: MediaQuery.of(context).size.width * 0.85,
+                      child: TextFormField(
+                        controller: _controllers[field],
+                        decoration: InputDecoration(
+                          labelText: 'Enter $field',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) =>
+                            value!.isEmpty ? 'Please enter $field' : null,
                       ),
-                      ElevatedButton(
-                        onPressed: _saveData,
-                        child: Text('Save'),
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                  );
+                }).toList(),
               ),
+            ),
+            SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton(
+                  onPressed: _resetForm,
+                  child: Text('Reset'),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 30, vertical: 15)),
+                ),
+                ElevatedButton(
+                  onPressed: _saveData,
+                  child: Text('Save'),
+                  style: ElevatedButton.styleFrom(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 30, vertical: 15)),
+                ),
+              ],
             ),
             SizedBox(height: 20),
             Expanded(
               child: collectionBox.isEmpty
-                  ? Center(child: Text('No data available'))
+                  ? Center(
+                      child: Text('No data available',
+                          style: TextStyle(fontSize: 16)))
                   : ListView.builder(
                       itemCount: collectionBox.length,
                       itemBuilder: (context, index) {
-                        final data = collectionBox.getAt(index);
+                        final key = collectionBox.keyAt(index);
+                        final data = jsonDecode(collectionBox.get(key)!);
                         return Card(
+                          margin: EdgeInsets.symmetric(vertical: 8),
+                          elevation: 4,
                           child: ListTile(
-                            title: Text(data!.name),
-                            subtitle: Text(
-                              "Mobile: ${data.mobileNumber}\n"
-                              "Occupation: ${data.occupation}\n"
-                              "Address: ${data.address}\n"
-                              "Amount: ₹${data.amount}",
+                            title: Text(data[widget.fields.first] ?? 'No Name',
+                                style: TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: widget.fields.map((field) {
+                                return Text("$field: ${data[field] ?? ''}");
+                              }).toList(),
                             ),
                             trailing: IconButton(
-                              icon: Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteData(index),
-                            ),
+                                icon: Icon(Icons.delete, color: Colors.red),
+                                onPressed: () => _deleteData(index)),
                           ),
                         );
                       },

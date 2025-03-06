@@ -8,7 +8,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final Box<String> settingsBox = Hive.box<String>('settings');
+  late Box<String> settingsBox;
   List<String> fields = [];
 
   @override
@@ -17,17 +17,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadFields();
   }
 
-  void _loadFields() {
+  Future<void> _loadFields() async {
+    settingsBox = Hive.box<String>('settings');
     String? storedFields = settingsBox.get('fields');
-    if (storedFields != null) {
-      setState(() {
-        fields = List<String>.from(jsonDecode(storedFields));
-      });
-    } else {
-      setState(() {
-        fields = ['Name', 'Mobile Number', 'Occupation', 'Address', 'Amount'];
-      });
-    }
+    setState(() {
+      fields = storedFields != null
+          ? List<String>.from(jsonDecode(storedFields))
+          : ['Name', 'Mobile Number', 'Occupation', 'Address', 'Amount'];
+    });
   }
 
   void _saveFields() {
@@ -57,8 +54,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     fields.add(controller.text.trim());
                     _saveFields();
                   });
+                  Navigator.pop(context);
                 }
-                Navigator.pop(context);
               },
               child: Text('Add'),
             ),
@@ -84,43 +81,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Fields Settings',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            SizedBox(height: 10),
             Expanded(
-              child: ReorderableListView(
-                children: fields.asMap().entries.map((entry) {
-                  int index = entry.key;
-                  String field = entry.value;
-                  return Card(
-                    key: ValueKey(field),
-                    color: Colors.blue[50],
-                    child: ListTile(
-                      title: Text(field, style: TextStyle(fontSize: 16)),
-                      trailing: IconButton(
-                        icon: Icon(Icons.delete, color: Colors.red),
-                        onPressed: () => _deleteField(index),
-                      ),
+              child: ListView.builder(
+                itemCount: fields.length,
+                itemBuilder: (context, index) {
+                  return ListTile(
+                    title: Text(fields[index]),
+                    trailing: IconButton(
+                      icon: Icon(Icons.delete, color: Colors.red),
+                      onPressed: () => _deleteField(index),
                     ),
                   );
-                }).toList(),
-                onReorder: (oldIndex, newIndex) {
-                  setState(() {
-                    if (newIndex > oldIndex) newIndex -= 1;
-                    final item = fields.removeAt(oldIndex);
-                    fields.insert(newIndex, item);
-                    _saveFields();
-                  });
                 },
               ),
             ),
+            ElevatedButton(
+              onPressed: _addNewField,
+              child: Text('Add New Field'),
+            ),
             SizedBox(height: 10),
-            Center(
-              child: ElevatedButton.icon(
-                onPressed: _addNewField,
-                icon: Icon(Icons.add),
-                label: Text('Add New Field'),
-              ),
+            ElevatedButton(
+              onPressed: () {
+                _saveFields();
+                Navigator.pop(context, fields);
+              },
+              child: Text("Save and Return"),
             ),
           ],
         ),
