@@ -9,7 +9,14 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late Box<String> settingsBox;
-  List<String> fields = [];
+  Map<String, String> fields = {}; // Stores field names with types
+
+  final List<String> fieldTypes = [
+    'Text',
+    'Number',
+    'Date',
+    'Dropdown'
+  ]; // Available field types
 
   @override
   void initState() {
@@ -20,11 +27,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadFields() async {
     settingsBox = Hive.box<String>('settings');
     String? storedFields = settingsBox.get('fields');
-    setState(() {
-      fields = storedFields != null
-          ? List<String>.from(jsonDecode(storedFields))
-          : ['Name', 'Mobile Number', 'Occupation', 'Address', 'Amount'];
-    });
+
+    if (storedFields != null && storedFields.isNotEmpty) {
+      try {
+        setState(() {
+          fields = Map<String, String>.from(jsonDecode(storedFields));
+        });
+      } catch (e) {
+        setState(() {
+          fields = {};
+        });
+      }
+    } else {
+      setState(() {
+        fields = {
+          'Name': 'Text',
+          'Mobile Number': 'Number',
+          'Occupation': 'Text',
+          'Address': 'Text',
+          'Amount': 'Number'
+        };
+      });
+    }
   }
 
   void _saveFields() {
@@ -32,15 +56,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _addNewField() {
+    TextEditingController fieldNameController = TextEditingController();
+    String selectedType = fieldTypes[0];
+
     showDialog(
       context: context,
       builder: (context) {
-        TextEditingController controller = TextEditingController();
         return AlertDialog(
           title: Text('Add New Field'),
-          content: TextField(
-            controller: controller,
-            decoration: InputDecoration(hintText: 'Enter field name'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: fieldNameController,
+                decoration: InputDecoration(hintText: 'Enter field name'),
+              ),
+              SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: selectedType,
+                items: fieldTypes
+                    .map((type) =>
+                        DropdownMenuItem(value: type, child: Text(type)))
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    selectedType = value;
+                  }
+                },
+                decoration: InputDecoration(labelText: 'Field Type'),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -49,9 +94,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             TextButton(
               onPressed: () {
-                if (controller.text.trim().isNotEmpty) {
+                String fieldName = fieldNameController.text.trim();
+                if (fieldName.isNotEmpty) {
                   setState(() {
-                    fields.add(controller.text.trim());
+                    fields[fieldName] = selectedType;
                     _saveFields();
                   });
                   Navigator.pop(context);
@@ -65,9 +111,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _deleteField(int index) {
+  void _deleteField(String fieldName) {
     setState(() {
-      fields.removeAt(index);
+      fields.remove(fieldName);
       _saveFields();
     });
   }
@@ -85,11 +131,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ListView.builder(
                 itemCount: fields.length,
                 itemBuilder: (context, index) {
+                  String fieldName = fields.keys.elementAt(index);
                   return ListTile(
-                    title: Text(fields[index]),
+                    title: Text('$fieldName (${fields[fieldName]})'),
                     trailing: IconButton(
                       icon: Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _deleteField(index),
+                      onPressed: () => _deleteField(fieldName),
                     ),
                   );
                 },

@@ -19,7 +19,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   int _selectedIndex = 1;
-  List<String> _fields = [];
+  Map<String, String> _fields = {};
 
   @override
   void initState() {
@@ -30,10 +30,29 @@ class _MyAppState extends State<MyApp> {
   void _loadFields() {
     final settingsBox = Hive.box<String>('settings');
     String? storedFields = settingsBox.get('fields');
+
     setState(() {
-      _fields = storedFields != null
-          ? List<String>.from(jsonDecode(storedFields))
-          : ['Name', 'Mobile Number', 'Occupation', 'Address', 'Amount'];
+      if (storedFields != null && storedFields.isNotEmpty) {
+        try {
+          _fields = Map<String, String>.from(jsonDecode(storedFields));
+        } catch (e) {
+          _fields = {
+            'Name': 'Text',
+            'Mobile Number': 'Number',
+            'Occupation': 'Text',
+            'Address': 'Text',
+            'Amount': 'Number'
+          };
+        }
+      } else {
+        _fields = {
+          'Name': 'Text',
+          'Mobile Number': 'Number',
+          'Occupation': 'Text',
+          'Address': 'Text',
+          'Amount': 'Number'
+        };
+      }
     });
   }
 
@@ -43,10 +62,11 @@ class _MyAppState extends State<MyApp> {
     });
 
     if (index == 0) {
-      final updatedFields = await Navigator.push<List<String>>(
+      final updatedFields = await Navigator.push<Map<String, String>>(
         context,
         MaterialPageRoute(builder: (context) => SettingsScreen()),
       );
+
       if (updatedFields != null) {
         final settingsBox = Hive.box<String>('settings');
         settingsBox.put('fields', jsonEncode(updatedFields));
@@ -90,6 +110,7 @@ class _MyAppState extends State<MyApp> {
       case 0:
         return SettingsScreen();
       case 1:
+        _loadFields();
         return CollectionScreen(fields: _fields);
       case 2:
         return Center(
@@ -102,7 +123,7 @@ class _MyAppState extends State<MyApp> {
 }
 
 class CollectionScreen extends StatefulWidget {
-  final List<String> fields;
+  final Map<String, String> fields;
 
   CollectionScreen({required this.fields});
 
@@ -123,7 +144,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   void _updateControllers() {
     _controllers.clear();
-    for (var field in widget.fields) {
+    for (var field in widget.fields.keys) {
       _controllers[field] = TextEditingController();
     }
   }
@@ -131,13 +152,16 @@ class _CollectionScreenState extends State<CollectionScreen> {
   void _saveData() {
     if (_formKey.currentState!.validate()) {
       final Map<String, String> dataMap = {};
-      for (var field in widget.fields) {
+      for (var field in widget.fields.keys) {
         dataMap[field] = _controllers[field]?.text ?? '';
       }
       collectionBox.put(DateTime.now().toString(), jsonEncode(dataMap));
+
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Data saved!')));
+
       _resetForm();
+      setState(() {}); // Refresh UI
     }
   }
 
@@ -168,20 +192,32 @@ class _CollectionScreenState extends State<CollectionScreen> {
             Form(
               key: _formKey,
               child: Column(
-                children: widget.fields.map((field) {
+                children: widget.fields.keys.map((field) {
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 6.0),
-                    child: SizedBox(
-                      width: MediaQuery.of(context).size.width * 0.85,
-                      child: TextFormField(
-                        controller: _controllers[field],
-                        decoration: InputDecoration(
-                          labelText: 'Enter $field',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (value) =>
-                            value!.isEmpty ? 'Please enter $field' : null,
+                    child: TextFormField(
+                      controller: _controllers[field],
+                      decoration: InputDecoration(
+                        labelText: 'Enter $field',
+                        border: OutlineInputBorder(),
                       ),
+                      keyboardType: widget.fields[field] == 'Number'
+                          ? TextInputType.number
+                          : TextInputType.text,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter $field';
+                        }
+                        if (widget.fields[field] == 'Number' &&
+                            !RegExp(r'^\d+$').hasMatch(value)) {
+                          return 'Invalid type: Only numbers allowed';
+                        }
+                        if (widget.fields[field] == 'Text' &&
+                            RegExp(r'\d').hasMatch(value)) {
+                          return 'Invalid type: Numbers are not allowed in $field';
+                        }
+                        return null;
+                      },
                     ),
                   );
                 }).toList(),
@@ -211,29 +247,31 @@ class _CollectionScreenState extends State<CollectionScreen> {
             SizedBox(height: 20),
             Expanded(
               child: collectionBox.isEmpty
-                  ? Center(
-                      child: Text('No data available',
-                          style: TextStyle(fontSize: 16)))
+                  ? Center(child: Text('No data available'))
                   : ListView.builder(
                       itemCount: collectionBox.length,
                       itemBuilder: (context, index) {
                         final key = collectionBox.keyAt(index);
                         final data = jsonDecode(collectionBox.get(key)!);
+
                         return Card(
                           margin: EdgeInsets.symmetric(vertical: 8),
                           elevation: 4,
                           child: ListTile(
-                            title: Text(data[widget.fields.first] ?? 'No Name',
-                                style: TextStyle(fontWeight: FontWeight.bold)),
+                            title: Text(
+                              data[widget.fields.keys.first] ?? '',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
                             subtitle: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
-                              children: widget.fields.map((field) {
+                              children: widget.fields.keys.map((field) {
                                 return Text("$field: ${data[field] ?? ''}");
                               }).toList(),
                             ),
                             trailing: IconButton(
-                                icon: Icon(Icons.delete, color: Colors.red),
-                                onPressed: () => _deleteData(index)),
+                              icon: Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _deleteData(index),
+                            ),
                           ),
                         );
                       },
