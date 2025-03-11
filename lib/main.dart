@@ -1,281 +1,207 @@
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'settings_screen.dart';
 import 'dart:convert';
+import 'field_model.dart';
+import 'settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Hive.initFlutter();
-  await Hive.openBox<String>('collections');
+  Hive.init('hive_data');
+  Hive.registerAdapter(FieldModelAdapter());
   await Hive.openBox<String>('settings');
+  await Hive.openBox<List>(
+      'collection_data'); // Open a box for storing collection data
   runApp(MyApp());
 }
 
-class MyApp extends StatefulWidget {
-  @override
-  _MyAppState createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  int _selectedIndex = 1;
-  Map<String, String> _fields = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _loadFields();
-  }
-
-  void _loadFields() {
-    final settingsBox = Hive.box<String>('settings');
-    String? storedFields = settingsBox.get('fields');
-
-    setState(() {
-      if (storedFields != null && storedFields.isNotEmpty) {
-        try {
-          _fields = Map<String, String>.from(jsonDecode(storedFields));
-        } catch (e) {
-          _fields = {
-            'Name': 'Text',
-            'Mobile Number': 'Number',
-            'Occupation': 'Text',
-            'Address': 'Text',
-            'Amount': 'Number'
-          };
-        }
-      } else {
-        _fields = {
-          'Name': 'Text',
-          'Mobile Number': 'Number',
-          'Occupation': 'Text',
-          'Address': 'Text',
-          'Amount': 'Number'
-        };
-      }
-    });
-  }
-
-  void _onItemTapped(int index) async {
-    setState(() {
-      _selectedIndex = index;
-    });
-
-    if (index == 0) {
-      final updatedFields = await Navigator.push<Map<String, String>>(
-        context,
-        MaterialPageRoute(builder: (context) => SettingsScreen()),
-      );
-
-      if (updatedFields != null) {
-        final settingsBox = Hive.box<String>('settings');
-        settingsBox.put('fields', jsonEncode(updatedFields));
-        setState(() {
-          _fields = updatedFields;
-        });
-      }
-    }
-  }
-
+class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Collection App',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
-      home: Scaffold(
-        body: _buildBody(),
-        bottomNavigationBar: BottomNavigationBar(
-          items: const <BottomNavigationBarItem>[
-            BottomNavigationBarItem(
-                icon: Icon(Icons.settings), label: 'Settings'),
-            BottomNavigationBarItem(icon: Icon(Icons.add), label: 'Collection'),
-            BottomNavigationBarItem(
-                icon: Icon(Icons.description), label: 'Reports'),
-          ],
-          currentIndex: _selectedIndex,
-          selectedItemColor: Colors.blueAccent,
-          onTap: _onItemTapped,
-          backgroundColor: Colors.white,
-          elevation: 10,
-        ),
-      ),
+      debugShowCheckedModeBanner: false,
+      home: CollectionScreen(),
     );
-  }
-
-  Widget _buildBody() {
-    switch (_selectedIndex) {
-      case 0:
-        return SettingsScreen();
-      case 1:
-        _loadFields();
-        return CollectionScreen(fields: _fields);
-      case 2:
-        return Center(
-            child: Text('Reports Screen',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)));
-      default:
-        return CollectionScreen(fields: _fields);
-    }
   }
 }
 
 class CollectionScreen extends StatefulWidget {
-  final Map<String, String> fields;
-
-  CollectionScreen({required this.fields});
-
   @override
   _CollectionScreenState createState() => _CollectionScreenState();
 }
 
 class _CollectionScreenState extends State<CollectionScreen> {
   final _formKey = GlobalKey<FormState>();
-  final Map<String, TextEditingController> _controllers = {};
-  final Box<String> collectionBox = Hive.box<String>('collections');
+  late Box<String> settingsBox;
+  late Box<List> dataBox;
+  List<FieldModel> fields = [];
+  Map<String, TextEditingController> _controllers = {};
+  List<Map<String, String>> savedData = [];
 
   @override
   void initState() {
     super.initState();
-    _updateControllers();
+    _loadFields();
+    _loadSavedData();
   }
 
-  void _updateControllers() {
-    _controllers.clear();
-    for (var field in widget.fields.keys) {
-      _controllers[field] = TextEditingController();
+  Future<void> _loadFields() async {
+    settingsBox = Hive.box<String>('settings');
+    dataBox = Hive.box<List>('collection_data');
+
+    String? storedFields = settingsBox.get('fields');
+
+    if (storedFields != null && storedFields.isNotEmpty) {
+      setState(() {
+        fields = (jsonDecode(storedFields) as List)
+            .map((e) => FieldModel.fromJson(e))
+            .toList();
+        _initializeControllers();
+      });
     }
+  }
+
+  void _initializeControllers() {
+    for (var field in fields) {
+      _controllers[field.name] = TextEditingController();
+    }
+  }
+
+  void _loadSavedData() {
+    dataBox = Hive.box<List>('collection_data');
+    List<dynamic>? storedData = dataBox.get('data');
+
+    if (storedData != null) {
+      setState(() {
+        savedData = storedData.cast<Map<String, String>>();
+      });
+    }
+  }
+
+  void _navigateToSettings() async {
+    final updatedFields = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => SettingsScreen()),
+    );
+
+    if (updatedFields != null) {
+      setState(() {
+        fields = updatedFields;
+        _initializeControllers();
+      });
+    }
+  }
+
+  Widget _buildField(FieldModel field) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: TextFormField(
+        controller: _controllers[field.name],
+        decoration: InputDecoration(
+          labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
+          border: OutlineInputBorder(),
+        ),
+        keyboardType:
+            field.type == 'Number' ? TextInputType.number : TextInputType.text,
+        validator: (value) {
+          if (field.isMandatory && (value == null || value.isEmpty)) {
+            return '${field.name} is mandatory';
+          }
+          if (field.type == 'Number' &&
+              !RegExp(r'^\d+$').hasMatch(value ?? '')) {
+            return 'Only numbers allowed';
+          }
+          if (field.name.toLowerCase() == 'mobile number' &&
+              !RegExp(r'^\d{10}$').hasMatch(value ?? '')) {
+            return 'Mobile number must be exactly 10 digits';
+          }
+          return null;
+        },
+      ),
+    );
   }
 
   void _saveData() {
     if (_formKey.currentState!.validate()) {
-      final Map<String, String> dataMap = {};
-      for (var field in widget.fields.keys) {
-        dataMap[field] = _controllers[field]?.text ?? '';
+      Map<String, String> newData = {};
+      for (var field in fields) {
+        newData[field.name] = _controllers[field.name]!.text;
+        _controllers[field.name]!.clear();
       }
-      collectionBox.put(DateTime.now().toString(), jsonEncode(dataMap));
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Data saved!')));
+      setState(() {
+        savedData.add(newData);
+      });
 
-      _resetForm();
-      setState(() {}); // Refresh UI
+      dataBox.put('data', savedData);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Data Saved Successfully')),
+      );
     }
   }
 
-  void _resetForm() {
-    setState(() {
-      for (var controller in _controllers.values) {
-        controller.clear();
-      }
-    });
-  }
-
-  void _deleteData(int index) {
-    final key = collectionBox.keyAt(index);
-    collectionBox.delete(key);
-    setState(() {});
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Data deleted!')));
+  Widget _buildSavedDataList() {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
+      itemCount: savedData.length,
+      itemBuilder: (context, index) {
+        return Card(
+          margin: EdgeInsets.symmetric(vertical: 4.0),
+          child: ListTile(
+            title: Text('Entry ${index + 1}'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: savedData[index]
+                  .entries
+                  .map((e) => Text('${e.key}: ${e.value}'))
+                  .toList(),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Collection')),
+      appBar: AppBar(
+        title: Text('Collection'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.settings),
+            onPressed: _navigateToSettings,
+          ),
+        ],
+      ),
       body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            Form(
-              key: _formKey,
-              child: Column(
-                children: widget.fields.keys.map((field) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6.0),
-                    child: TextFormField(
-                      controller: _controllers[field],
-                      decoration: InputDecoration(
-                        labelText: 'Enter $field',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: widget.fields[field] == 'Number'
-                          ? TextInputType.number
-                          : TextInputType.text,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter $field';
-                        }
-                        if (widget.fields[field] == 'Number' &&
-                            !RegExp(r'^\d+$').hasMatch(value)) {
-                          return 'Invalid type: Only numbers allowed';
-                        }
-                        if (widget.fields[field] == 'Text' &&
-                            RegExp(r'\d').hasMatch(value)) {
-                          return 'Invalid type: Numbers are not allowed in $field';
-                        }
-                        return null;
-                      },
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ElevatedButton(
-                  onPressed: _resetForm,
-                  child: Text('Reset'),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 30, vertical: 15)),
-                ),
-                ElevatedButton(
-                  onPressed: _saveData,
-                  child: Text('Save'),
-                  style: ElevatedButton.styleFrom(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 30, vertical: 15)),
-                ),
-              ],
-            ),
-            SizedBox(height: 20),
             Expanded(
-              child: collectionBox.isEmpty
-                  ? Center(child: Text('No data available'))
-                  : ListView.builder(
-                      itemCount: collectionBox.length,
-                      itemBuilder: (context, index) {
-                        final key = collectionBox.keyAt(index);
-                        final data = jsonDecode(collectionBox.get(key)!);
-
-                        return Card(
-                          margin: EdgeInsets.symmetric(vertical: 8),
-                          elevation: 4,
-                          child: ListTile(
-                            title: Text(
-                              data[widget.fields.keys.first] ?? '',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: widget.fields.keys.map((field) {
-                                return Text("$field: ${data[field] ?? ''}");
-                              }).toList(),
-                            ),
-                            trailing: IconButton(
-                              icon: Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteData(index),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      ...fields.map((field) => _buildField(field)).toList(),
+                      SizedBox(height: 20),
+                      ElevatedButton(
+                        onPressed: _saveData,
+                        child: Text('Save'),
+                      ),
+                      SizedBox(height: 20),
+                      Text(
+                        'Saved Data',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      _buildSavedDataList(),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ],
         ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'dart:convert';
+import 'field_model.dart';
 
 class SettingsScreen extends StatefulWidget {
   @override
@@ -9,14 +10,15 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late Box<String> settingsBox;
-  Map<String, String> fields = {}; // Stores field names with types
+  List<FieldModel> fields = [];
 
   final List<String> fieldTypes = [
     'Text',
     'Number',
     'Date',
+    'DateTime',
     'Dropdown'
-  ]; // Available field types
+  ];
 
   @override
   void initState() {
@@ -31,33 +33,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (storedFields != null && storedFields.isNotEmpty) {
       try {
         setState(() {
-          fields = Map<String, String>.from(jsonDecode(storedFields));
+          fields = (jsonDecode(storedFields) as List)
+              .map((e) => FieldModel.fromJson(e))
+              .toList();
         });
       } catch (e) {
         setState(() {
-          fields = {};
+          fields = [];
         });
       }
-    } else {
-      setState(() {
-        fields = {
-          'Name': 'Text',
-          'Mobile Number': 'Number',
-          'Occupation': 'Text',
-          'Address': 'Text',
-          'Amount': 'Number'
-        };
-      });
     }
   }
 
   void _saveFields() {
-    settingsBox.put('fields', jsonEncode(fields));
+    settingsBox.put(
+        'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
   }
 
   void _addNewField() {
     TextEditingController fieldNameController = TextEditingController();
     String selectedType = fieldTypes[0];
+    bool isMandatory = false;
 
     showDialog(
       context: context,
@@ -85,6 +81,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
                 decoration: InputDecoration(labelText: 'Field Type'),
               ),
+              SwitchListTile(
+                title: Text('Mandatory'),
+                value: isMandatory,
+                onChanged: (value) {
+                  setState(() {
+                    isMandatory = value;
+                  });
+                },
+              ),
             ],
           ),
           actions: [
@@ -97,7 +102,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 String fieldName = fieldNameController.text.trim();
                 if (fieldName.isNotEmpty) {
                   setState(() {
-                    fields[fieldName] = selectedType;
+                    fields.add(FieldModel(
+                        name: fieldName,
+                        type: selectedType,
+                        isMandatory: isMandatory));
                     _saveFields();
                   });
                   Navigator.pop(context);
@@ -111,9 +119,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _deleteField(String fieldName) {
+  void _deleteField(int index) {
     setState(() {
-      fields.remove(fieldName);
+      fields.removeAt(index);
       _saveFields();
     });
   }
@@ -131,12 +139,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ListView.builder(
                 itemCount: fields.length,
                 itemBuilder: (context, index) {
-                  String fieldName = fields.keys.elementAt(index);
+                  FieldModel field = fields[index];
                   return ListTile(
-                    title: Text('$fieldName (${fields[fieldName]})'),
+                    title: Text('${field.name} (${field.type})'),
+                    subtitle: field.isMandatory
+                        ? Text('Mandatory', style: TextStyle(color: Colors.red))
+                        : null,
                     trailing: IconButton(
                       icon: Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _deleteField(fieldName),
+                      onPressed: () => _deleteField(index),
                     ),
                   );
                 },
