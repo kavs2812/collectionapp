@@ -2,9 +2,9 @@
 
 part of 'field_model.dart';
 
-// **************************************************************************
+// ***************************************************************************
 // TypeAdapterGenerator
-// **************************************************************************
+// ***************************************************************************
 
 class FieldModelAdapter extends TypeAdapter<FieldModel> {
   @override
@@ -16,7 +16,7 @@ class FieldModelAdapter extends TypeAdapter<FieldModel> {
       name: reader.readString(),
       type: reader.readString(),
       isMandatory: reader.readBool(),
-      isDefault: reader.readBool(),
+      options: (reader.read() as List).cast<String>(),
     );
   }
 
@@ -25,7 +25,7 @@ class FieldModelAdapter extends TypeAdapter<FieldModel> {
     writer.writeString(obj.name);
     writer.writeString(obj.type);
     writer.writeBool(obj.isMandatory);
-    writer.writeBool(obj.isDefault);
+    writer.write(obj.options);
   }
 
   @override

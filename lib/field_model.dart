@@ -5,39 +5,39 @@ part 'field_model.g.dart';
 @HiveType(typeId: 0)
 class FieldModel {
   @HiveField(0)
-  final String name;
+  String name;
 
   @HiveField(1)
-  final String type;
+  String type;
 
   @HiveField(2)
-  final bool isMandatory;
+  bool isMandatory;
 
   @HiveField(3)
-  final bool isDefault;
+  List<String> options; // New field for dropdown options
 
   FieldModel({
     required this.name,
     required this.type,
     this.isMandatory = false,
-    this.isDefault = false,
+    this.options = const [],
   });
-
-  Map<String, dynamic> toJson() {
-    return {
-      'name': name,
-      'type': type,
-      'isMandatory': isMandatory,
-      'isDefault': isDefault,
-    };
-  }
 
   factory FieldModel.fromJson(Map<String, dynamic> json) {
     return FieldModel(
       name: json['name'],
       type: json['type'],
       isMandatory: json['isMandatory'] ?? false,
-      isDefault: json['isDefault'] ?? false,
+      options: (json['options'] as List<dynamic>?)?.cast<String>() ?? [],
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'type': type,
+      'isMandatory': isMandatory,
+      'options': options,
+    };
   }
 }

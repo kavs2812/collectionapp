@@ -20,6 +20,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'Dropdown'
   ];
 
+  final List<FieldModel> defaultFields = [
+    FieldModel(name: 'Name', type: 'Text', isMandatory: true),
+    FieldModel(name: 'Age', type: 'Number', isMandatory: true),
+    FieldModel(name: 'Number', type: 'Number', isMandatory: true),
+    FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
+    FieldModel(name: 'Address', type: 'Text', isMandatory: false),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -38,11 +46,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               .toList();
         });
       } catch (e) {
-        setState(() {
-          fields = [];
-        });
+        _resetToDefaultFields();
       }
+    } else {
+      _resetToDefaultFields();
     }
+  }
+
+  void _resetToDefaultFields() {
+    setState(() {
+      fields = defaultFields;
+    });
+    _saveFields();
   }
 
   void _saveFields() {
@@ -51,75 +66,108 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _addNewField() {
-    TextEditingController fieldNameController = TextEditingController();
-    String selectedType = fieldTypes[0];
-    bool isMandatory = false;
+    _showFieldDialog(isEdit: false);
+  }
+
+  void _editField(int index) {
+    _showFieldDialog(isEdit: true, fieldIndex: index);
+  }
+
+  void _showFieldDialog({required bool isEdit, int? fieldIndex}) {
+    String title = isEdit ? 'Edit Field' : 'Add New Field';
+    FieldModel? editingField = isEdit ? fields[fieldIndex!] : null;
+
+    TextEditingController fieldNameController =
+        TextEditingController(text: editingField?.name ?? '');
+    String selectedType = editingField?.type ?? fieldTypes[0];
+    bool isMandatory = editingField?.isMandatory ?? false;
 
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: Text('Add New Field'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: fieldNameController,
-                decoration: InputDecoration(hintText: 'Enter field name'),
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: Text(title),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: fieldNameController,
+                    decoration: InputDecoration(hintText: 'Enter field name'),
+                  ),
+                  SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: selectedType,
+                    items: fieldTypes
+                        .map((type) =>
+                            DropdownMenuItem(value: type, child: Text(type)))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setStateDialog(() {
+                          selectedType = value;
+                        });
+                      }
+                    },
+                    decoration: InputDecoration(labelText: 'Field Type'),
+                  ),
+                  SwitchListTile(
+                    title: Text('Mandatory'),
+                    value: isMandatory,
+                    onChanged: (value) {
+                      setStateDialog(() {
+                        isMandatory = value;
+                      });
+                    },
+                  ),
+                ],
               ),
-              SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: selectedType,
-                items: fieldTypes
-                    .map((type) =>
-                        DropdownMenuItem(value: type, child: Text(type)))
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    selectedType = value;
-                  }
-                },
-                decoration: InputDecoration(labelText: 'Field Type'),
-              ),
-              SwitchListTile(
-                title: Text('Mandatory'),
-                value: isMandatory,
-                onChanged: (value) {
-                  setState(() {
-                    isMandatory = value;
-                  });
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                String fieldName = fieldNameController.text.trim();
-                if (fieldName.isNotEmpty) {
-                  setState(() {
-                    fields.add(FieldModel(
-                        name: fieldName,
-                        type: selectedType,
-                        isMandatory: isMandatory));
-                    _saveFields();
-                  });
-                  Navigator.pop(context);
-                }
-              },
-              child: Text('Add'),
-            ),
-          ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    String fieldName = fieldNameController.text.trim();
+                    if (fieldName.isNotEmpty) {
+                      setState(() {
+                        if (isEdit) {
+                          fields[fieldIndex!] = FieldModel(
+                              name: fieldName,
+                              type: selectedType,
+                              isMandatory: isMandatory);
+                        } else {
+                          fields.add(FieldModel(
+                              name: fieldName,
+                              type: selectedType,
+                              isMandatory: isMandatory));
+                        }
+                        _saveFields();
+                      });
+                      Navigator.pop(context);
+                    }
+                  },
+                  child: Text(isEdit ? 'Update' : 'Add'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
 
   void _deleteField(int index) {
+    // Prevent deletion of default fields
+    if (index < defaultFields.length) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Cannot delete default fields")),
+      );
+      return;
+    }
+
     setState(() {
       fields.removeAt(index);
       _saveFields();
@@ -145,9 +193,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     subtitle: field.isMandatory
                         ? Text('Mandatory', style: TextStyle(color: Colors.red))
                         : null,
-                    trailing: IconButton(
-                      icon: Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _deleteField(index),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.edit, color: Colors.blue),
+                          onPressed: () => _editField(index),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.delete, color: Colors.red),
+                          onPressed: () => _deleteField(index),
+                        ),
+                      ],
                     ),
                   );
                 },
@@ -156,14 +213,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ElevatedButton(
               onPressed: _addNewField,
               child: Text('Add New Field'),
-            ),
-            SizedBox(height: 10),
-            ElevatedButton(
-              onPressed: () {
-                _saveFields();
-                Navigator.pop(context, fields);
-              },
-              child: Text("Save and Return"),
             ),
           ],
         ),

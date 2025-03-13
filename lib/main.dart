@@ -9,17 +9,52 @@ void main() async {
   Hive.init('hive_data');
   Hive.registerAdapter(FieldModelAdapter());
   await Hive.openBox<String>('settings');
-  await Hive.openBox<List>(
-      'collection_data'); // Open a box for storing collection data
+  await Hive.openBox<List>('collection_data');
   runApp(MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
+  @override
+  _MyAppState createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  int _selectedIndex = 1;
+
+  final List<Widget> _screens = [
+    SettingsScreen(),
+    CollectionScreen(),
+    ReportScreen(),
+  ];
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: CollectionScreen(),
+      theme: ThemeData.light(),
+      darkTheme: ThemeData.dark(),
+      themeMode: ThemeMode.system,
+      home: Scaffold(
+        body: _screens[_selectedIndex],
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: _onItemTapped,
+          items: [
+            BottomNavigationBarItem(
+                icon: Icon(Icons.settings), label: 'Settings'),
+            BottomNavigationBarItem(
+                icon: Icon(Icons.list), label: 'Collection'),
+            BottomNavigationBarItem(
+                icon: Icon(Icons.insert_chart), label: 'Report'),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -37,6 +72,14 @@ class _CollectionScreenState extends State<CollectionScreen> {
   Map<String, TextEditingController> _controllers = {};
   List<Map<String, String>> savedData = [];
 
+  final List<FieldModel> defaultFields = [
+    FieldModel(name: 'Name', type: 'Text', isMandatory: true),
+    FieldModel(name: 'Age', type: 'Number', isMandatory: true),
+    FieldModel(name: 'Number', type: 'Number', isMandatory: true),
+    FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
+    FieldModel(name: 'Address', type: 'Text', isMandatory: false),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -51,13 +94,32 @@ class _CollectionScreenState extends State<CollectionScreen> {
     String? storedFields = settingsBox.get('fields');
 
     if (storedFields != null && storedFields.isNotEmpty) {
-      setState(() {
-        fields = (jsonDecode(storedFields) as List)
-            .map((e) => FieldModel.fromJson(e))
-            .toList();
-        _initializeControllers();
-      });
+      try {
+        setState(() {
+          fields = (jsonDecode(storedFields) as List)
+              .map((e) => FieldModel.fromJson(e))
+              .toList();
+        });
+      } catch (e) {
+        _resetToDefaultFields();
+      }
+    } else {
+      _resetToDefaultFields();
     }
+
+    _initializeControllers();
+  }
+
+  void _resetToDefaultFields() {
+    setState(() {
+      fields = defaultFields;
+    });
+    _saveFields();
+  }
+
+  void _saveFields() {
+    settingsBox.put(
+        'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
   }
 
   void _initializeControllers() {
@@ -77,18 +139,10 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
   }
 
-  void _navigateToSettings() async {
-    final updatedFields = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => SettingsScreen()),
-    );
-
-    if (updatedFields != null) {
-      setState(() {
-        fields = updatedFields;
-        _initializeControllers();
-      });
-    }
+  void _clearAllFields() {
+    setState(() {
+      _controllers.forEach((key, controller) => controller.clear());
+    });
   }
 
   Widget _buildField(FieldModel field) {
@@ -97,6 +151,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
       child: TextFormField(
         controller: _controllers[field.name],
         decoration: InputDecoration(
+          prefixIcon:
+              Icon(field.type == 'Number' ? Icons.numbers : Icons.text_fields),
           labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
           border: OutlineInputBorder(),
         ),
@@ -110,8 +166,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
               !RegExp(r'^\d+$').hasMatch(value ?? '')) {
             return 'Only numbers allowed';
           }
-          if (field.name.toLowerCase() == 'mobile number' &&
-              !RegExp(r'^\d{10}$').hasMatch(value ?? '')) {
+          if (field.name.toLowerCase() == 'number' && value!.length != 10) {
             return 'Mobile number must be exactly 10 digits';
           }
           return null;
@@ -166,15 +221,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Collection'),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.settings),
-            onPressed: _navigateToSettings,
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text('Collection')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -187,16 +234,32 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     children: [
                       ...fields.map((field) => _buildField(field)).toList(),
                       SizedBox(height: 20),
-                      ElevatedButton(
-                        onPressed: _saveData,
-                        child: Text('Save'),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blueAccent,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                            onPressed: _saveData,
+                            child: Text('Save',
+                                style: TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.bold)),
+                          ),
+                          TextButton(
+                            onPressed: _clearAllFields,
+                            child: Text('Clear All',
+                                style:
+                                    TextStyle(color: Colors.red, fontSize: 16)),
+                          ),
+                        ],
                       ),
                       SizedBox(height: 20),
-                      Text(
-                        'Saved Data',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
+                      Text('Saved Data',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold)),
                       _buildSavedDataList(),
                     ],
                   ),
@@ -206,6 +269,16 @@ class _CollectionScreenState extends State<CollectionScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class ReportScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Report')),
+      body: Center(child: Text('Report Screen')),
     );
   }
 }
