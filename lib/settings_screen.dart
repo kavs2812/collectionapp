@@ -20,11 +20,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'Dropdown'
   ];
 
+  final List<String> fixedFields = ['Name', 'Amount'];
+
   final List<FieldModel> defaultFields = [
     FieldModel(name: 'Name', type: 'Text', isMandatory: true),
-    FieldModel(name: 'Age', type: 'Number', isMandatory: true),
-    FieldModel(name: 'Number', type: 'Number', isMandatory: true),
-    FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
+    FieldModel(name: 'Amount', type: 'Number', isMandatory: true),
+    FieldModel(name: 'Age', type: 'Number', isMandatory: false),
+    FieldModel(name: 'Number', type: 'Number', isMandatory: false),
     FieldModel(name: 'Address', type: 'Text', isMandatory: false),
   ];
 
@@ -38,18 +40,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     settingsBox = Hive.box<String>('settings');
     String? storedFields = settingsBox.get('fields');
 
-    if (storedFields != null && storedFields.isNotEmpty) {
+    if (storedFields == null || storedFields.isEmpty) {
+      _resetToDefaultFields();
+    } else {
       try {
+        List<FieldModel> loadedFields = (jsonDecode(storedFields) as List)
+            .map((e) => FieldModel.fromJson(e))
+            .toList();
         setState(() {
-          fields = (jsonDecode(storedFields) as List)
-              .map((e) => FieldModel.fromJson(e))
-              .toList();
+          fields = loadedFields;
         });
+
+        _ensureFixedFieldsPosition();
       } catch (e) {
         _resetToDefaultFields();
       }
-    } else {
-      _resetToDefaultFields();
     }
   }
 
@@ -63,6 +68,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _saveFields() {
     settingsBox.put(
         'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
+  }
+
+  void _ensureFixedFieldsPosition() {
+    setState(() {
+      fields.sort((a, b) {
+        if (a.name == "Name") return -1;
+        if (b.name == "Name") return 1;
+        if (a.name == "Amount") return -1;
+        if (b.name == "Amount") return 1;
+        return 0;
+      });
+    });
   }
 
   void _addNewField() {
@@ -144,6 +161,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               type: selectedType,
                               isMandatory: isMandatory));
                         }
+                        _ensureFixedFieldsPosition();
                         _saveFields();
                       });
                       Navigator.pop(context);
@@ -160,10 +178,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _deleteField(int index) {
-    // Prevent deletion of default fields
-    if (index < defaultFields.length) {
+    FieldModel field = fields[index];
+
+    if (fixedFields.contains(field.name)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Cannot delete default fields")),
+        SnackBar(content: Text("${field.name} cannot be deleted.")),
       );
       return;
     }
@@ -200,10 +219,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           icon: Icon(Icons.edit, color: Colors.blue),
                           onPressed: () => _editField(index),
                         ),
-                        IconButton(
-                          icon: Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => _deleteField(index),
-                        ),
+                        if (!fixedFields.contains(field.name))
+                          IconButton(
+                            icon: Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => _deleteField(index),
+                          ),
                       ],
                     ),
                   );
