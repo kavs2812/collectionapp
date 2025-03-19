@@ -13,6 +13,7 @@ dependencies:
   hive_flutter: any # Removed version constraint
   path_provider: any # Removed version constraint
   cupertino_icons: any # Removed version constraint
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:
