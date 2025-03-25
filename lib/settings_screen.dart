@@ -98,6 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         TextEditingController(text: editingField?.name ?? '');
     String selectedType = editingField?.type ?? fieldTypes[0];
     bool isMandatory = editingField?.isMandatory ?? false;
+    String? errorText;
 
     showDialog(
       context: context,
@@ -111,7 +112,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   TextField(
                     controller: fieldNameController,
-                    decoration: InputDecoration(hintText: 'Enter field name'),
+                    maxLength: 30, // Limit field characters to 30
+                    decoration: InputDecoration(
+                      hintText: 'Enter field name',
+                      errorText: errorText,
+                    ),
                   ),
                   SizedBox(height: 10),
                   DropdownButtonFormField<String>(
@@ -148,24 +153,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 TextButton(
                   onPressed: () {
                     String fieldName = fieldNameController.text.trim();
-                    if (fieldName.isNotEmpty) {
-                      setState(() {
-                        if (isEdit) {
-                          fields[fieldIndex!] = FieldModel(
-                              name: fieldName,
-                              type: selectedType,
-                              isMandatory: isMandatory);
-                        } else {
-                          fields.add(FieldModel(
-                              name: fieldName,
-                              type: selectedType,
-                              isMandatory: isMandatory));
-                        }
-                        _ensureFixedFieldsPosition();
-                        _saveFields();
+
+                    // Validation: Field name cannot be empty
+                    if (fieldName.isEmpty) {
+                      setStateDialog(() {
+                        errorText = "Field name cannot be empty";
                       });
-                      Navigator.pop(context);
+                      return;
                     }
+
+                    // Validation: Field name cannot be duplicated
+                    bool isDuplicate = fields.any((field) =>
+                        field.name.toLowerCase() == fieldName.toLowerCase() &&
+                        (!isEdit || fields[fieldIndex!].name != fieldName));
+
+                    if (isDuplicate) {
+                      setStateDialog(() {
+                        errorText = "Field name already exists";
+                      });
+                      return;
+                    }
+
+                    // Validation: Number field should not be empty
+                    if (selectedType == "Number" && fieldName.isEmpty) {
+                      setStateDialog(() {
+                        errorText = "Number field cannot be empty";
+                      });
+                      return;
+                    }
+
+                    setState(() {
+                      if (isEdit) {
+                        fields[fieldIndex!] = FieldModel(
+                            name: fieldName,
+                            type: selectedType,
+                            isMandatory: isMandatory);
+                      } else {
+                        fields.add(FieldModel(
+                            name: fieldName,
+                            type: selectedType,
+                            isMandatory: isMandatory));
+                      }
+                      _ensureFixedFieldsPosition();
+                      _saveFields();
+                    });
+                    Navigator.pop(context);
                   },
                   child: Text(isEdit ? 'Update' : 'Add'),
                 ),

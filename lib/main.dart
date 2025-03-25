@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
@@ -5,11 +6,20 @@ import 'dart:convert';
 import 'field_model.dart';
 import 'settings_screen.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:io';
+import 'package:csv/csv.dart';
+import 'dart:html' as html; // For web support
+import 'dart:typed_data'; // For handling bytes
+import 'dart:ui' show kIsWeb; // Import for kIsWeb
+import 'package:flutter_inappwebview/flutter_inappwebview.dart'; // For WebView
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Hive.initFlutter(
-      'hive_data'); // Use Hive.initFlutter() for Flutter apps
+  await Hive.initFlutter('hive_data');
   Hive.registerAdapter(FieldModelAdapter());
   await Hive.openBox<String>('settings');
   await Hive.openBox<List>('collection_data');
@@ -138,7 +148,10 @@ class _CollectionScreenState extends State<CollectionScreen> {
     if (storedData != null) {
       setState(() {
         savedData = storedData.cast<Map<String, String>>();
+        print("Loaded saved data: $savedData"); // Debug print
       });
+    } else {
+      print("No saved data found in Hive box."); // Debug print
     }
   }
 
@@ -184,7 +197,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
       for (var field in fields) {
         newData[field.name] = _controllers[field.name]!.text;
       }
-      // Add timestamp to the data
       newData['date'] =
           DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
@@ -194,9 +206,250 @@ class _CollectionScreenState extends State<CollectionScreen> {
       });
 
       dataBox.put('data', savedData);
+      print("Saved data to Hive: $savedData"); // Debug print
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Data Saved Successfully')),
+      );
+    }
+  }
+
+  Future<void> _generateAndDownloadBill(Map<String, String> data) async {
+    try {
+      // Create the PDF
+      final pdf = pw.Document();
+
+      pdf.addPage(
+        pw.Page(
+          build: (pw.Context context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('Bill Receipt',
+                  style: pw.TextStyle(
+                      fontSize: 24, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 20),
+              pw.Text('Date: ${data['date']}',
+                  style: pw.TextStyle(fontSize: 16)),
+              pw.SizedBox(height: 20),
+              pw.Table(
+                border: pw.TableBorder.all(),
+                children: [
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(8),
+                        child: pw.Text('Field',
+                            style:
+                                pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(8),
+                        child: pw.Text('Value',
+                            style:
+                                pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  ...data.entries
+                      .map((entry) => pw.TableRow(
+                            children: [
+                              pw.Padding(
+                                padding: const pw.EdgeInsets.all(8),
+                                child: pw.Text(entry.key),
+                              ),
+                              pw.Padding(
+                                padding: const pw.EdgeInsets.all(8),
+                                child: pw.Text(entry.value),
+                              ),
+                            ],
+                          ))
+                      .toList(),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Get the PDF bytes
+      final pdfBytes = await pdf.save();
+
+      // Handle platform-specific download
+      if (kIsWeb) {
+        // Web platform: Trigger browser download
+        final blob = html.Blob([pdfBytes], 'application/pdf');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute('download',
+              'bill_${data['date']?.replaceAll(':', '-') ?? 'unknown'}_${DateTime.now().millisecondsSinceEpoch}.pdf')
+          ..click();
+        html.Url.revokeObjectUrl(url);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Bill downloaded via browser')),
+        );
+      } else {
+        // Mobile platform: Save to device
+        if (await Permission.storage.request().isDenied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content:
+                    Text('Storage permission is required to save the bill')),
+          );
+          return;
+        }
+
+        Directory? directory;
+        try {
+          directory = await getDownloadsDirectory();
+          if (directory == null) {
+            throw Exception('Downloads directory not available');
+          }
+        } catch (e) {
+          directory = await getApplicationDocumentsDirectory();
+        }
+
+        final fileName =
+            'bill_${data['date']?.replaceAll(':', '-') ?? 'unknown'}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+        final file = File('${directory.path}/$fileName');
+
+        await directory.create(recursive: true);
+        await file.writeAsBytes(pdfBytes);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Bill downloaded to ${file.path}')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to download bill: $e')),
+      );
+    }
+  }
+
+  String _generateHtmlInvoice(Map<String, String> data) {
+    return '''
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Invoice</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .invoice-box { max-width: 800px; margin: auto; padding: 30px; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0, 0, 0, 0.15); }
+        .invoice-box table { width: 100%; line-height: 1.5; border-collapse: collapse; }
+        .invoice-box table td { padding: 5px; vertical-align: top; }
+        .invoice-box table tr td:nth-child(2) { text-align: right; }
+        .invoice-box .title { font-size: 24px; text-align: center; margin-bottom: 20px; }
+        .invoice-box .header { background-color: #f7f7f7; font-weight: bold; }
+      </style>
+    </head>
+    <body>
+      <div class="invoice-box">
+        <div class="title">Invoice Receipt</div>
+        <table>
+          <tr class="header">
+            <td>Field</td>
+            <td>Value</td>
+          </tr>
+          ${fields.map((field) => '''
+            <tr>
+              <td>${field.name}</td>
+              <td>${data[field.name] ?? 'N/A'}</td>
+            </tr>
+          ''').join('')}
+          <tr>
+            <td>Date</td>
+            <td>${data['date']}</td>
+          </tr>
+          <tr>
+            <td><strong>Total Amount</strong></td>
+            <td><strong>${data['Amount'] ?? '0'}</strong></td>
+          </tr>
+        </table>
+        <p style="text-align: center; margin-top: 20px;">Thank you for your business!</p>
+      </div>
+    </body>
+    </html>
+    ''';
+  }
+
+  void _showInvoiceInWebView(Map<String, String> data) {
+    final htmlContent = _generateHtmlInvoice(data);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => InvoiceWebViewScreen(htmlContent: htmlContent),
+      ),
+    );
+  }
+
+  Future<void> _exportToCsv() async {
+    try {
+      List<Map<String, String>> collectionInfo = savedData;
+
+      if (collectionInfo.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No data to export')),
+        );
+        return;
+      }
+
+      List<List<dynamic>> csvData = [
+        collectionInfo.first.keys.toList(),
+        ...collectionInfo.map((entry) => entry.values.toList()),
+      ];
+
+      String csv = const ListToCsvConverter().convert(csvData);
+
+      if (kIsWeb) {
+        // Web platform: Trigger browser download
+        final bytes = utf8.encode(csv);
+        final blob = html.Blob([bytes], 'text/csv');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute('download',
+              'collection_${DateTime.now().millisecondsSinceEpoch}.csv')
+          ..click();
+        html.Url.revokeObjectUrl(url);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('CSV downloaded via browser')),
+        );
+      } else {
+        // Mobile platform: Save to device
+        if (await Permission.storage.request().isDenied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text('Storage permission is required to export CSV')),
+          );
+          return;
+        }
+
+        Directory? directory;
+        try {
+          directory = await getDownloadsDirectory();
+          if (directory == null) {
+            throw Exception('Downloads directory not available');
+          }
+        } catch (e) {
+          directory = await getApplicationDocumentsDirectory();
+        }
+
+        final fileName =
+            'collection_${DateTime.now().millisecondsSinceEpoch}.csv';
+        final file = File('${directory.path}/$fileName');
+
+        await directory.create(recursive: true);
+        await file.writeAsString(csv);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('CSV exported to ${file.path}')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to export CSV: $e')),
       );
     }
   }
@@ -218,6 +471,19 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   .map((e) => Text('${e.key}: ${e.value}'))
                   .toList(),
             ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.remove_red_eye_outlined),
+                  onPressed: () => _showInvoiceInWebView(savedData[index]),
+                ),
+                IconButton(
+                  icon: Icon(Icons.print),
+                  onPressed: () => _generateAndDownloadBill(savedData[index]),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -227,7 +493,15 @@ class _CollectionScreenState extends State<CollectionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Collection')),
+      appBar: AppBar(
+        title: Text('Collection'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.download),
+            onPressed: _exportToCsv,
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -279,6 +553,38 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 }
 
+class InvoiceWebViewScreen extends StatelessWidget {
+  final String htmlContent;
+
+  const InvoiceWebViewScreen({Key? key, required this.htmlContent})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Invoice Preview'),
+      ),
+      body: InAppWebView(
+        initialData: InAppWebViewInitialData(
+          data: htmlContent,
+          mimeType: 'text/html',
+          encoding: 'utf-8',
+        ),
+        initialOptions: InAppWebViewGroupOptions(
+          crossPlatform: InAppWebViewOptions(
+            javaScriptEnabled: true,
+            useShouldOverrideUrlLoading: true,
+          ),
+        ),
+        onWebViewCreated: (controller) {
+          // WebView is created, you can add additional logic here if needed
+        },
+      ),
+    );
+  }
+}
+
 class ReportsScreen extends StatefulWidget {
   @override
   _ReportsScreenState createState() => _ReportsScreenState();
@@ -298,8 +604,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   void _storeDummyData() {
     DateTime yesterday = DateTime.now().subtract(Duration(days: 1));
-    // ignore: unused_local_variable
-    String formattedDate = DateFormat('yyyy-MM-dd').format(yesterday);
     List<dynamic>? existingData = collectionBox.get('data');
 
     if (existingData == null || existingData.isEmpty) {
@@ -313,6 +617,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       };
       setState(() {
         collectionBox.put('data', [dummyEntry]);
+        print("Stored dummy data: $dummyEntry"); // Debug print
       });
     }
   }
@@ -326,6 +631,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     List<Map<String, String>> collectionInfo = (storedData ?? [])
         .map((item) => Map<String, String>.from(item as Map))
         .toList();
+
+    print("All collection info: $collectionInfo"); // Debug print
 
     if (specificDate != null) {
       return collectionInfo
@@ -417,6 +724,85 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  Future<void> _exportToCsv() async {
+    try {
+      List<Map<String, String>> collectionInfo = getFilteredCollectionInfo();
+      print(
+          "Filtered collection info for export: $collectionInfo"); // Debug print
+
+      if (collectionInfo.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No data to export')),
+        );
+        return;
+      }
+
+      List<List<dynamic>> csvData = [
+        collectionInfo.first.keys.toList(),
+        ...collectionInfo.map((entry) => entry.values.toList()),
+      ];
+
+      print("CSV data prepared: $csvData"); // Debug print
+
+      String csv = const ListToCsvConverter().convert(csvData);
+      print("Generated CSV string: $csv"); // Debug print
+
+      if (kIsWeb) {
+        // Web platform: Trigger browser download
+        final bytes = utf8.encode(csv);
+        final blob = html.Blob([bytes], 'text/csv');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute('download',
+              'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv')
+          ..click();
+        html.Url.revokeObjectUrl(url);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('CSV downloaded via browser')),
+        );
+      } else {
+        // Mobile platform: Save to device
+        if (await Permission.storage.request().isDenied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text('Storage permission is required to export CSV')),
+          );
+          return;
+        }
+
+        Directory? directory;
+        try {
+          directory = await getDownloadsDirectory();
+          if (directory == null) {
+            throw Exception('Downloads directory not available');
+          }
+        } catch (e) {
+          print("Error accessing Downloads directory: $e"); // Debug print
+          directory = await getApplicationDocumentsDirectory();
+        }
+
+        final fileName =
+            'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv';
+        final file = File('${directory.path}/$fileName');
+
+        print("Saving CSV to: ${file.path}"); // Debug print
+
+        await directory.create(recursive: true);
+        await file.writeAsString(csv);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Report exported to ${file.path}')),
+        );
+      }
+    } catch (e) {
+      print("Error in _exportToCsv: $e"); // Debug print
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to export CSV: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     List<Map<String, String>> collectionInfo = getFilteredCollectionInfo();
@@ -426,6 +812,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
         title: Text("Reports"),
         centerTitle: true,
         backgroundColor: Colors.blue,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.download),
+            onPressed: _exportToCsv,
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -446,7 +838,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ],
             ),
             SizedBox(height: 16),
-            _buildSummaryGrid(collectionInfo), // Updated type
+            _buildSummaryGrid(collectionInfo),
             SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,
