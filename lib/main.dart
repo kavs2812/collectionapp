@@ -112,8 +112,10 @@ class _CollectionScreenState extends State<CollectionScreen> {
           fields = (jsonDecode(storedFields) as List)
               .map((e) => FieldModel.fromJson(e))
               .toList();
+          print("Loaded fields: $fields"); // Debug print
         });
       } catch (e) {
+        print("Error loading fields: $e"); // Debug print
         _resetToDefaultFields();
       }
     } else {
@@ -133,6 +135,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
   void _saveFields() {
     settingsBox.put(
         'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
+    print("Saved fields: ${settingsBox.get('fields')}"); // Debug print
   }
 
   void _initializeControllers() {
@@ -162,6 +165,37 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   Widget _buildField(FieldModel field) {
+    if (field.type == 'Dropdown') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6.0),
+        child: DropdownButtonFormField<String>(
+          value: _controllers[field.name]!.text.isNotEmpty
+              ? _controllers[field.name]!.text
+              : null,
+          decoration: InputDecoration(
+            prefixIcon: Icon(Icons.arrow_drop_down),
+            labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
+            border: OutlineInputBorder(),
+          ),
+          items: field.options
+              .map((option) =>
+                  DropdownMenuItem(value: option, child: Text(option)))
+              .toList(),
+          onChanged: (value) {
+            if (value != null) {
+              _controllers[field.name]!.text = value;
+            }
+          },
+          validator: (value) {
+            if (field.isMandatory && (value == null || value.isEmpty)) {
+              return '${field.name} is mandatory';
+            }
+            return null;
+          },
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: TextFormField(
@@ -216,7 +250,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   Future<void> _generateAndDownloadBill(Map<String, String> data) async {
     try {
-      // Create the PDF
       final pdf = pw.Document();
 
       pdf.addPage(
@@ -271,12 +304,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
         ),
       );
 
-      // Get the PDF bytes
       final pdfBytes = await pdf.save();
 
-      // Handle platform-specific download
       if (kIsWeb) {
-        // Web platform: Trigger browser download
         final blob = html.Blob([pdfBytes], 'application/pdf');
         final url = html.Url.createObjectUrlFromBlob(blob);
         final anchor = html.AnchorElement(href: url)
@@ -289,7 +319,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
           SnackBar(content: Text('Bill downloaded via browser')),
         );
       } else {
-        // Mobile platform: Save to device
         if (await Permission.storage.request().isDenied) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -403,7 +432,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
       String csv = const ListToCsvConverter().convert(csvData);
 
       if (kIsWeb) {
-        // Web platform: Trigger browser download
         final bytes = utf8.encode(csv);
         final blob = html.Blob([bytes], 'text/csv');
         final url = html.Url.createObjectUrlFromBlob(blob);
@@ -417,7 +445,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
           SnackBar(content: Text('CSV downloaded via browser')),
         );
       } else {
-        // Mobile platform: Save to device
         if (await Permission.storage.request().isDenied) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -577,9 +604,7 @@ class InvoiceWebViewScreen extends StatelessWidget {
             useShouldOverrideUrlLoading: true,
           ),
         ),
-        onWebViewCreated: (controller) {
-          // WebView is created, you can add additional logic here if needed
-        },
+        onWebViewCreated: (controller) {},
       ),
     );
   }
@@ -748,7 +773,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
       print("Generated CSV string: $csv"); // Debug print
 
       if (kIsWeb) {
-        // Web platform: Trigger browser download
         final bytes = utf8.encode(csv);
         final blob = html.Blob([bytes], 'text/csv');
         final url = html.Url.createObjectUrlFromBlob(blob);
@@ -762,7 +786,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
           SnackBar(content: Text('CSV downloaded via browser')),
         );
       } else {
-        // Mobile platform: Save to device
         if (await Permission.storage.request().isDenied) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
