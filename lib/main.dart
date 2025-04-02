@@ -196,6 +196,100 @@ class _CollectionScreenState extends State<CollectionScreen> {
       );
     }
 
+    // Handle Date field with date picker
+    if (field.type == 'Date') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6.0),
+        child: TextFormField(
+          controller: _controllers[field.name],
+          decoration: InputDecoration(
+            prefixIcon: Icon(Icons.calendar_today),
+            labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
+            border: OutlineInputBorder(),
+            suffixIcon: IconButton(
+              icon: Icon(Icons.date_range),
+              onPressed: () async {
+                DateTime? pickedDate = await showDatePicker(
+                  context: context,
+                  initialDate: DateTime.now(),
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime(2100),
+                );
+                if (pickedDate != null) {
+                  setState(() {
+                    _controllers[field.name]!.text =
+                        DateFormat('yyyy-MM-dd').format(pickedDate);
+                  });
+                }
+              },
+            ),
+          ),
+          readOnly: true, // Makes the field non-editable directly
+          validator: (value) {
+            if (field.isMandatory && (value == null || value.isEmpty)) {
+              return '${field.name} is mandatory';
+            }
+            return null;
+          },
+        ),
+      );
+    }
+
+    // Handle DateTime field with date and time picker
+    if (field.type == 'DateTime') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6.0),
+        child: TextFormField(
+          controller: _controllers[field.name],
+          decoration: InputDecoration(
+            prefixIcon: Icon(Icons.calendar_today),
+            labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
+            border: OutlineInputBorder(),
+            suffixIcon: IconButton(
+              icon: Icon(Icons.access_time),
+              onPressed: () async {
+                // First pick date
+                DateTime? pickedDate = await showDatePicker(
+                  context: context,
+                  initialDate: DateTime.now(),
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime(2100),
+                );
+                if (pickedDate != null) {
+                  // Then pick time
+                  TimeOfDay? pickedTime = await showTimePicker(
+                    context: context,
+                    initialTime: TimeOfDay.now(),
+                  );
+                  if (pickedTime != null) {
+                    final dateTime = DateTime(
+                      pickedDate.year,
+                      pickedDate.month,
+                      pickedDate.day,
+                      pickedTime.hour,
+                      pickedTime.minute,
+                    );
+                    setState(() {
+                      _controllers[field.name]!.text =
+                          DateFormat('yyyy-MM-dd HH:mm').format(dateTime);
+                    });
+                  }
+                }
+              },
+            ),
+          ),
+          readOnly: true, // Makes the field non-editable directly
+          validator: (value) {
+            if (field.isMandatory && (value == null || value.isEmpty)) {
+              return '${field.name} is mandatory';
+            }
+            return null;
+          },
+        ),
+      );
+    }
+
+    // Default handling for Text and Number fields
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: TextFormField(

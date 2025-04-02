@@ -21,14 +21,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ];
   final List<String> fixedFields = ['Name', 'Amount'];
 
-  final List<FieldModel> defaultFields = [
-    FieldModel(name: 'Name', type: 'Text', isMandatory: true),
-    FieldModel(name: 'Amount', type: 'Number', isMandatory: true),
-    FieldModel(name: 'Age', type: 'Number', isMandatory: false),
-    FieldModel(name: 'Number', type: 'Number', isMandatory: false),
-    FieldModel(name: 'Address', type: 'Text', isMandatory: false),
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -39,47 +31,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     settingsBox = Hive.box<String>('settings');
     String? storedFields = settingsBox.get('fields');
 
-    if (storedFields == null || storedFields.isEmpty) {
-      _resetToDefaultFields();
-    } else {
+    if (storedFields != null && storedFields.isNotEmpty) {
       try {
         List<dynamic> decodedFields = jsonDecode(storedFields);
         setState(() {
           fields = decodedFields.map((e) => FieldModel.fromJson(e)).toList();
-          print("Loaded fields: $fields"); // Debug print
         });
-        _ensureFixedFieldsPosition();
       } catch (e) {
-        print("Error loading fields: $e"); // Debug print
-        _resetToDefaultFields();
+        setState(() {
+          fields = [];
+        });
       }
     }
-  }
-
-  void _resetToDefaultFields() {
-    setState(() {
-      fields = defaultFields;
-      print("Reset to default fields: $fields"); // Debug print
-    });
-    _saveFields();
   }
 
   void _saveFields() {
     settingsBox.put(
         'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
-    print("Saved fields to Hive: ${settingsBox.get('fields')}"); // Debug print
-  }
-
-  void _ensureFixedFieldsPosition() {
-    setState(() {
-      fields.sort((a, b) {
-        if (a.name == "Name") return -1;
-        if (b.name == "Name") return 1;
-        if (a.name == "Amount") return -1;
-        if (b.name == "Amount") return 1;
-        return 0;
-      });
-    });
   }
 
   void _addNewField() {
@@ -110,7 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             return AlertDialog(
               title: Text(title),
               content: SizedBox(
-                width: 300, // Reduced width from double.maxFinite
+                width: 300,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -126,18 +94,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       SizedBox(height: 10),
                       DropdownButtonFormField<String>(
                         value: selectedType,
-                        items: fieldTypes
-                            .map((type) => DropdownMenuItem(
-                                value: type, child: Text(type)))
-                            .toList(),
-                        onChanged: (value) {
-                          setStateDialog(() {
-                            selectedType = value!;
-                            if (selectedType != 'Dropdown') {
-                              dropdownOptions.clear();
-                            }
-                          });
-                        },
+                        items: fieldTypes.map((type) {
+                          return DropdownMenuItem(
+                              value: type, child: Text(type));
+                        }).toList(),
+                        onChanged: isEdit && selectedType == 'Dropdown'
+                            ? null
+                            : (value) {
+                                setStateDialog(() {
+                                  selectedType = value!;
+                                  if (selectedType != 'Dropdown') {
+                                    dropdownOptions.clear();
+                                  }
+                                });
+                              },
                         decoration: InputDecoration(labelText: 'Field Type'),
                       ),
                       SizedBox(height: 10),
@@ -256,7 +226,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               selectedType == 'Dropdown' ? dropdownOptions : [],
                         ));
                       }
-                      _ensureFixedFieldsPosition();
                       _saveFields();
                     });
                     Navigator.pop(context);
