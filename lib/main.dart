@@ -10,10 +10,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
 import 'package:csv/csv.dart';
-import 'dart:html' as html; // For web support
+import 'package:universal_html/html.dart' as html;
 import 'dart:typed_data'; // For handling bytes
 import 'dart:ui' show kIsWeb; // Import for kIsWeb
 import 'package:flutter_inappwebview/flutter_inappwebview.dart'; // For WebView
+import 'package:flutter/foundation.dart' as foundation;
+import 'package:share_plus/share_plus.dart';
 
 // FieldModel class
 class FieldModel {
@@ -147,6 +149,35 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
     );
+  }
+}
+
+Future<void> saveAndDownloadFile(Uint8List bytes, String fileName, String mimeType) async {
+  if (foundation.kIsWeb) {
+    // Web platform
+    final blob = html.Blob([bytes], mimeType);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', fileName)
+      ..click();
+    html.Url.revokeObjectUrl(url);
+  } else if (Platform.isAndroid || Platform.isIOS) {
+    // Mobile platforms
+    final directory = await getApplicationDocumentsDirectory();
+    final filePath = '${directory.path}/$fileName';
+    final file = File(filePath);
+    await file.writeAsBytes(bytes);
+    
+    // For Android, check storage permission
+    if (Platform.isAndroid) {
+      var status = await Permission.storage.status;
+      if (!status.isGranted) {
+        await Permission.storage.request();
+      }
+    }
+    
+    // Share the file
+    await Share.shareXFiles([XFile(filePath, mimeType: mimeType)], subject: 'Sharing $fileName');
   }
 }
 
@@ -622,7 +653,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
       final pdfBytes = await pdf.save();
 
-      if (kIsWeb) {
+      if (foundation.kIsWeb) {
         final blob = html.Blob([pdfBytes], 'application/pdf');
         final url = html.Url.createObjectUrlFromBlob(blob);
         final anchor = html.AnchorElement(href: url)
@@ -739,7 +770,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
       String csv = const ListToCsvConverter().convert(csvData);
 
-      if (kIsWeb) {
+      if (foundation.kIsWeb) {
         final bytes = utf8.encode(csv);
         final blob = html.Blob([bytes], 'text/csv');
         final url = html.Url.createObjectUrlFromBlob(blob);
@@ -1096,65 +1127,38 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _exportToCsv() async {
-    try {
-      List<Map<String, String>> collectionInfo = getFilteredCollectionInfo();
+  try {
+    List<Map<String, String>> collectionInfo = getFilteredCollectionInfo();
+    print("Filtered collection info for export: $collectionInfo"); // Debug print
 
-      if (collectionInfo.isEmpty) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('No data to export')));
-        return;
-      }
-
-      List<List<dynamic>> csvData = [
-        collectionInfo.first.keys.toList(),
-        ...collectionInfo.map((entry) => entry.values.toList()),
-      ];
-
-      String csv = const ListToCsvConverter().convert(csvData);
-
-      if (kIsWeb) {
-        final bytes = utf8.encode(csv);
-        final blob = html.Blob([bytes], 'text/csv');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..setAttribute('download',
-              'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv')
-          ..click();
-        html.Url.revokeObjectUrl(url);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('CSV downloaded via browser')));
-      } else {
-        if (await Permission.storage.request().isDenied) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('Storage permission is required to export CSV')));
-          return;
-        }
-
-        Directory? directory;
-        try {
-          directory = await getDownloadsDirectory();
-          if (directory == null)
-            throw Exception('Downloads directory not available');
-        } catch (e) {
-          directory = await getApplicationDocumentsDirectory();
-        }
-
-        final fileName =
-            'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv';
-        final file = File('${directory.path}/$fileName');
-
-        await directory.create(recursive: true);
-        await file.writeAsString(csv);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Report exported to ${file.path}')));
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to export CSV: $e')));
+    if (collectionInfo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No data to export')),
+      );
+      return;
     }
+
+    List<List<dynamic>> csvData = [
+      collectionInfo.first.keys.toList(),
+      ...collectionInfo.map((entry) => entry.values.toList()),
+    ];
+
+    String csv = const ListToCsvConverter().convert(csvData);
+    final fileName = 'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv';
+    final bytes = utf8.encode(csv);
+    
+    await saveAndDownloadFile(Uint8List.fromList(bytes), fileName, 'text/csv');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Report exported successfully')),
+    );
+  } catch (e) {
+    print("Error in _exportToCsv: $e"); // Debug print
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Failed to export CSV: $e')),
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {
