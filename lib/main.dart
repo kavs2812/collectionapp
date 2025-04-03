@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
-import 'field_model.dart';
-import 'settings_screen.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -16,6 +14,58 @@ import 'dart:html' as html; // For web support
 import 'dart:typed_data'; // For handling bytes
 import 'dart:ui' show kIsWeb; // Import for kIsWeb
 import 'package:flutter_inappwebview/flutter_inappwebview.dart'; // For WebView
+
+// FieldModel class
+class FieldModel {
+  String name;
+  String type;
+  bool isMandatory;
+  List<String> options;
+
+  FieldModel({
+    required this.name,
+    required this.type,
+    required this.isMandatory,
+    this.options = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'type': type,
+        'isMandatory': isMandatory,
+        'options': options,
+      };
+
+  factory FieldModel.fromJson(Map<String, dynamic> json) => FieldModel(
+        name: json['name'],
+        type: json['type'],
+        isMandatory: json['isMandatory'],
+        options: (json['options'] as List<dynamic>?)?.cast<String>() ?? [],
+      );
+}
+
+class FieldModelAdapter extends TypeAdapter<FieldModel> {
+  @override
+  final int typeId = 0;
+
+  @override
+  FieldModel read(BinaryReader reader) {
+    return FieldModel(
+      name: reader.readString(),
+      type: reader.readString(),
+      isMandatory: reader.readBool(),
+      options: reader.readStringList(),
+    );
+  }
+
+  @override
+  void write(BinaryWriter writer, FieldModel obj) {
+    writer.writeString(obj.name);
+    writer.writeString(obj.type);
+    writer.writeBool(obj.isMandatory);
+    writer.writeStringList(obj.options);
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,14 +100,42 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.light(),
-      darkTheme: ThemeData.dark(),
+      theme: ThemeData(
+        primaryColor: Colors.blueAccent,
+        scaffoldBackgroundColor: Colors.grey[100],
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.blueAccent,
+          foregroundColor: Colors.white,
+          elevation: 4,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blueAccent,
+            foregroundColor: Colors.white,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+          ),
+        ),
+        textTheme: TextTheme(
+          bodyMedium: TextStyle(fontSize: 16, color: Colors.black87),
+          titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+      ),
+      darkTheme: ThemeData.dark().copyWith(
+        primaryColor: Colors.blueAccent,
+        scaffoldBackgroundColor: Colors.grey[900],
+      ),
       themeMode: ThemeMode.system,
       home: Scaffold(
         body: _screens[_selectedIndex],
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _selectedIndex,
           onTap: _onItemTapped,
+          selectedItemColor: Colors.blueAccent,
+          unselectedItemColor: Colors.grey,
+          backgroundColor: Colors.white,
+          elevation: 8,
           items: [
             BottomNavigationBarItem(
                 icon: Icon(Icons.settings), label: 'Settings'),
@@ -65,6 +143,169 @@ class _MyAppState extends State<MyApp> {
                 icon: Icon(Icons.list), label: 'Collection'),
             BottomNavigationBarItem(
                 icon: Icon(Icons.insert_chart), label: 'Report'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SettingsScreen extends StatefulWidget {
+  @override
+  _SettingsScreenState createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late Box<String> settingsBox;
+  List<FieldModel> fields = [];
+  final TextEditingController _nameController = TextEditingController();
+  String _selectedType = 'Text';
+  bool _isMandatory = false;
+  final List<String> _fieldTypes = [
+    'Text',
+    'Number',
+    'Dropdown',
+    'Date',
+    'DateTime'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    settingsBox = Hive.box<String>('settings');
+    _loadFields();
+  }
+
+  Future<void> _loadFields() async {
+    String? storedFields = settingsBox.get('fields');
+    if (storedFields != null && storedFields.isNotEmpty) {
+      try {
+        setState(() {
+          fields = (jsonDecode(storedFields) as List)
+              .map((e) => FieldModel.fromJson(e))
+              .toList();
+        });
+      } catch (e) {
+        _resetToDefaultFields();
+      }
+    }
+  }
+
+  void _resetToDefaultFields() {
+    setState(() {
+      fields = [
+        FieldModel(name: 'Name', type: 'Text', isMandatory: true),
+        FieldModel(name: 'Age', type: 'Number', isMandatory: true),
+        FieldModel(name: 'Number', type: 'Number', isMandatory: true),
+        FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
+        FieldModel(name: 'Address', type: 'Text', isMandatory: false),
+      ];
+      _saveFields();
+    });
+  }
+
+  void _saveFields() {
+    settingsBox.put(
+        'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
+  }
+
+  void _addField() {
+    if (_nameController.text.isNotEmpty) {
+      setState(() {
+        fields.add(FieldModel(
+          name: _nameController.text,
+          type: _selectedType,
+          isMandatory: _isMandatory,
+          options: _selectedType == 'Dropdown' ? ['Option 1', 'Option 2'] : [],
+        ));
+        _nameController.clear();
+        _selectedType = 'Text';
+        _isMandatory = false;
+        _saveFields();
+      });
+    }
+  }
+
+  void _removeField(int index) {
+    setState(() {
+      fields.removeAt(index);
+      _saveFields();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Settings'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Manage Fields',
+                style: Theme.of(context).textTheme.titleLarge),
+            SizedBox(height: 16),
+            TextField(
+              controller: _nameController,
+              decoration: InputDecoration(
+                labelText: 'Field Name',
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _selectedType,
+              decoration: InputDecoration(
+                labelText: 'Field Type',
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              items: _fieldTypes
+                  .map((type) =>
+                      DropdownMenuItem(value: type, child: Text(type)))
+                  .toList(),
+              onChanged: (value) => setState(() => _selectedType = value!),
+            ),
+            SizedBox(height: 12),
+            CheckboxListTile(
+              title: Text('Mandatory'),
+              value: _isMandatory,
+              onChanged: (value) => setState(() => _isMandatory = value!),
+            ),
+            SizedBox(height: 12),
+            ElevatedButton.icon(
+              icon: Icon(Icons.add),
+              label: Text('Add Field'),
+              onPressed: _addField,
+            ),
+            SizedBox(height: 20),
+            Text('Current Fields',
+                style: Theme.of(context).textTheme.titleLarge),
+            Expanded(
+              child: ListView.builder(
+                itemCount: fields.length,
+                itemBuilder: (context, index) {
+                  return Card(
+                    elevation: 2,
+                    margin: EdgeInsets.symmetric(vertical: 6),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      title: Text(fields[index].name),
+                      subtitle: Text(
+                          'Type: ${fields[index].type} | Mandatory: ${fields[index].isMandatory}'),
+                      trailing: IconButton(
+                        icon: Icon(Icons.delete, color: Colors.red),
+                        onPressed: () => _removeField(index),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           ],
         ),
       ),
@@ -112,10 +353,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
           fields = (jsonDecode(storedFields) as List)
               .map((e) => FieldModel.fromJson(e))
               .toList();
-          print("Loaded fields: $fields"); // Debug print
         });
       } catch (e) {
-        print("Error loading fields: $e"); // Debug print
         _resetToDefaultFields();
       }
     } else {
@@ -135,7 +374,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
   void _saveFields() {
     settingsBox.put(
         'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
-    print("Saved fields: ${settingsBox.get('fields')}"); // Debug print
   }
 
   void _initializeControllers() {
@@ -151,10 +389,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
     if (storedData != null) {
       setState(() {
         savedData = storedData.cast<Map<String, String>>();
-        print("Loaded saved data: $savedData"); // Debug print
       });
-    } else {
-      print("No saved data found in Hive box."); // Debug print
     }
   }
 
@@ -165,157 +400,150 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   Widget _buildField(FieldModel field) {
-    if (field.type == 'Dropdown') {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6.0),
-        child: DropdownButtonFormField<String>(
-          value: _controllers[field.name]!.text.isNotEmpty
-              ? _controllers[field.name]!.text
-              : null,
-          decoration: InputDecoration(
-            prefixIcon: Icon(Icons.arrow_drop_down),
-            labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
-            border: OutlineInputBorder(),
-          ),
-          items: field.options
-              .map((option) =>
-                  DropdownMenuItem(value: option, child: Text(option)))
-              .toList(),
-          onChanged: (value) {
-            if (value != null) {
-              _controllers[field.name]!.text = value;
-            }
-          },
-          validator: (value) {
-            if (field.isMandatory && (value == null || value.isEmpty)) {
-              return '${field.name} is mandatory';
-            }
-            return null;
-          },
-        ),
-      );
-    }
-
-    // Handle Date field with date picker
-    if (field.type == 'Date') {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6.0),
-        child: TextFormField(
-          controller: _controllers[field.name],
-          decoration: InputDecoration(
-            prefixIcon: Icon(Icons.calendar_today),
-            labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
-            border: OutlineInputBorder(),
-            suffixIcon: IconButton(
-              icon: Icon(Icons.date_range),
-              onPressed: () async {
-                DateTime? pickedDate = await showDatePicker(
-                  context: context,
-                  initialDate: DateTime.now(),
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime(2100),
-                );
-                if (pickedDate != null) {
-                  setState(() {
-                    _controllers[field.name]!.text =
-                        DateFormat('yyyy-MM-dd').format(pickedDate);
-                  });
-                }
-              },
-            ),
-          ),
-          readOnly: true, // Makes the field non-editable directly
-          validator: (value) {
-            if (field.isMandatory && (value == null || value.isEmpty)) {
-              return '${field.name} is mandatory';
-            }
-            return null;
-          },
-        ),
-      );
-    }
-
-    // Handle DateTime field with date and time picker
-    if (field.type == 'DateTime') {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6.0),
-        child: TextFormField(
-          controller: _controllers[field.name],
-          decoration: InputDecoration(
-            prefixIcon: Icon(Icons.calendar_today),
-            labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
-            border: OutlineInputBorder(),
-            suffixIcon: IconButton(
-              icon: Icon(Icons.access_time),
-              onPressed: () async {
-                // First pick date
-                DateTime? pickedDate = await showDatePicker(
-                  context: context,
-                  initialDate: DateTime.now(),
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime(2100),
-                );
-                if (pickedDate != null) {
-                  // Then pick time
-                  TimeOfDay? pickedTime = await showTimePicker(
-                    context: context,
-                    initialTime: TimeOfDay.now(),
-                  );
-                  if (pickedTime != null) {
-                    final dateTime = DateTime(
-                      pickedDate.year,
-                      pickedDate.month,
-                      pickedDate.day,
-                      pickedTime.hour,
-                      pickedTime.minute,
-                    );
-                    setState(() {
-                      _controllers[field.name]!.text =
-                          DateFormat('yyyy-MM-dd HH:mm').format(dateTime);
-                    });
-                  }
-                }
-              },
-            ),
-          ),
-          readOnly: true, // Makes the field non-editable directly
-          validator: (value) {
-            if (field.isMandatory && (value == null || value.isEmpty)) {
-              return '${field.name} is mandatory';
-            }
-            return null;
-          },
-        ),
-      );
-    }
-
-    // Default handling for Text and Number fields
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: TextFormField(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+                color: Colors.grey.withOpacity(0.1),
+                spreadRadius: 2,
+                blurRadius: 4),
+          ],
+        ),
+        child: _buildFieldContent(field),
+      ),
+    );
+  }
+
+  Widget _buildFieldContent(FieldModel field) {
+    if (field.type == 'Dropdown') {
+      return DropdownButtonFormField<String>(
+        value: _controllers[field.name]!.text.isNotEmpty
+            ? _controllers[field.name]!.text
+            : null,
+        decoration: InputDecoration(
+          prefixIcon: Icon(Icons.arrow_drop_down, color: Colors.blueAccent),
+          labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        ),
+        items: field.options
+            .map((option) =>
+                DropdownMenuItem(value: option, child: Text(option)))
+            .toList(),
+        onChanged: (value) {
+          if (value != null) _controllers[field.name]!.text = value;
+        },
+        validator: (value) =>
+            field.isMandatory && (value == null || value.isEmpty)
+                ? '${field.name} is mandatory'
+                : null,
+      );
+    }
+
+    if (field.type == 'Date') {
+      return TextFormField(
         controller: _controllers[field.name],
         decoration: InputDecoration(
-          prefixIcon:
-              Icon(field.type == 'Number' ? Icons.numbers : Icons.text_fields),
+          prefixIcon: Icon(Icons.calendar_today, color: Colors.blueAccent),
           labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
-          border: OutlineInputBorder(),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          suffixIcon: IconButton(
+            icon: Icon(Icons.date_range, color: Colors.blueAccent),
+            onPressed: () async {
+              DateTime? pickedDate = await showDatePicker(
+                context: context,
+                initialDate: DateTime.now(),
+                firstDate: DateTime(2000),
+                lastDate: DateTime(2100),
+              );
+              if (pickedDate != null) {
+                setState(() {
+                  _controllers[field.name]!.text =
+                      DateFormat('yyyy-MM-dd').format(pickedDate);
+                });
+              }
+            },
+          ),
         ),
-        keyboardType:
-            field.type == 'Number' ? TextInputType.number : TextInputType.text,
-        validator: (value) {
-          if (field.isMandatory && (value == null || value.isEmpty)) {
-            return '${field.name} is mandatory';
-          }
-          if (field.type == 'Number' &&
-              !RegExp(r'^\d+$').hasMatch(value ?? '')) {
-            return 'Only numbers allowed';
-          }
-          if (field.name.toLowerCase() == 'number' && value!.length != 10) {
-            return 'Mobile number must be exactly 10 digits';
-          }
-          return null;
-        },
+        readOnly: true,
+        validator: (value) =>
+            field.isMandatory && (value == null || value.isEmpty)
+                ? '${field.name} is mandatory'
+                : null,
+      );
+    }
+
+    if (field.type == 'DateTime') {
+      return TextFormField(
+        controller: _controllers[field.name],
+        decoration: InputDecoration(
+          prefixIcon: Icon(Icons.calendar_today, color: Colors.blueAccent),
+          labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          suffixIcon: IconButton(
+            icon: Icon(Icons.access_time, color: Colors.blueAccent),
+            onPressed: () async {
+              DateTime? pickedDate = await showDatePicker(
+                context: context,
+                initialDate: DateTime.now(),
+                firstDate: DateTime(2000),
+                lastDate: DateTime(2100),
+              );
+              if (pickedDate != null) {
+                TimeOfDay? pickedTime = await showTimePicker(
+                  context: context,
+                  initialTime: TimeOfDay.now(),
+                );
+                if (pickedTime != null) {
+                  final dateTime = DateTime(
+                    pickedDate.year,
+                    pickedDate.month,
+                    pickedDate.day,
+                    pickedTime.hour,
+                    pickedTime.minute,
+                  );
+                  setState(() {
+                    _controllers[field.name]!.text =
+                        DateFormat('yyyy-MM-dd HH:mm').format(dateTime);
+                  });
+                }
+              }
+            },
+          ),
+        ),
+        readOnly: true,
+        validator: (value) =>
+            field.isMandatory && (value == null || value.isEmpty)
+                ? '${field.name} is mandatory'
+                : null,
+      );
+    }
+
+    return TextFormField(
+      controller: _controllers[field.name],
+      decoration: InputDecoration(
+        prefixIcon: Icon(
+            field.type == 'Number' ? Icons.numbers : Icons.text_fields,
+            color: Colors.blueAccent),
+        labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
+      keyboardType:
+          field.type == 'Number' ? TextInputType.number : TextInputType.text,
+      validator: (value) {
+        if (field.isMandatory && (value == null || value.isEmpty))
+          return '${field.name} is mandatory';
+        if (field.type == 'Number' && !RegExp(r'^\d+$').hasMatch(value ?? ''))
+          return 'Only numbers allowed';
+        if (field.name.toLowerCase() == 'number' && value!.length != 10)
+          return 'Mobile number must be 10 digits';
+        return null;
+      },
     );
   }
 
@@ -334,11 +562,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
       });
 
       dataBox.put('data', savedData);
-      print("Saved data to Hive: $savedData"); // Debug print
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Data Saved Successfully')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Data Saved Successfully')));
     }
   }
 
@@ -364,30 +590,26 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   pw.TableRow(
                     children: [
                       pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Field',
-                            style:
-                                pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                      ),
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('Field',
+                              style: pw.TextStyle(
+                                  fontWeight: pw.FontWeight.bold))),
                       pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Value',
-                            style:
-                                pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                      ),
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text('Value',
+                              style: pw.TextStyle(
+                                  fontWeight: pw.FontWeight.bold))),
                     ],
                   ),
                   ...data.entries
                       .map((entry) => pw.TableRow(
                             children: [
                               pw.Padding(
-                                padding: const pw.EdgeInsets.all(8),
-                                child: pw.Text(entry.key),
-                              ),
+                                  padding: const pw.EdgeInsets.all(8),
+                                  child: pw.Text(entry.key)),
                               pw.Padding(
-                                padding: const pw.EdgeInsets.all(8),
-                                child: pw.Text(entry.value),
-                              ),
+                                  padding: const pw.EdgeInsets.all(8),
+                                  child: pw.Text(entry.value)),
                             ],
                           ))
                       .toList(),
@@ -410,24 +632,20 @@ class _CollectionScreenState extends State<CollectionScreen> {
         html.Url.revokeObjectUrl(url);
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Bill downloaded via browser')),
-        );
+            SnackBar(content: Text('Bill downloaded via browser')));
       } else {
         if (await Permission.storage.request().isDenied) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content:
-                    Text('Storage permission is required to save the bill')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:
+                  Text('Storage permission is required to save the bill')));
           return;
         }
 
         Directory? directory;
         try {
           directory = await getDownloadsDirectory();
-          if (directory == null) {
+          if (directory == null)
             throw Exception('Downloads directory not available');
-          }
         } catch (e) {
           directory = await getApplicationDocumentsDirectory();
         }
@@ -440,13 +658,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
         await file.writeAsBytes(pdfBytes);
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Bill downloaded to ${file.path}')),
-        );
+            SnackBar(content: Text('Bill downloaded to ${file.path}')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to download bill: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to download bill: $e')));
     }
   }
 
@@ -502,8 +718,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => InvoiceWebViewScreen(htmlContent: htmlContent),
-      ),
+          builder: (context) => InvoiceWebViewScreen(htmlContent: htmlContent)),
     );
   }
 
@@ -512,9 +727,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
       List<Map<String, String>> collectionInfo = savedData;
 
       if (collectionInfo.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No data to export')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('No data to export')));
         return;
       }
 
@@ -536,23 +750,19 @@ class _CollectionScreenState extends State<CollectionScreen> {
         html.Url.revokeObjectUrl(url);
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('CSV downloaded via browser')),
-        );
+            SnackBar(content: Text('CSV downloaded via browser')));
       } else {
         if (await Permission.storage.request().isDenied) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text('Storage permission is required to export CSV')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Storage permission is required to export CSV')));
           return;
         }
 
         Directory? directory;
         try {
           directory = await getDownloadsDirectory();
-          if (directory == null) {
+          if (directory == null)
             throw Exception('Downloads directory not available');
-          }
         } catch (e) {
           directory = await getApplicationDocumentsDirectory();
         }
@@ -565,13 +775,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
         await file.writeAsString(csv);
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('CSV exported to ${file.path}')),
-        );
+            SnackBar(content: Text('CSV exported to ${file.path}')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to export CSV: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to export CSV: $e')));
     }
   }
 
@@ -582,29 +790,78 @@ class _CollectionScreenState extends State<CollectionScreen> {
       itemCount: savedData.length,
       itemBuilder: (context, index) {
         return Card(
-          margin: EdgeInsets.symmetric(vertical: 4.0),
-          child: ListTile(
-            title: Text('Entry ${index + 1}'),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: savedData[index]
-                  .entries
-                  .map((e) => Text('${e.key}: ${e.value}'))
-                  .toList(),
+          elevation: 4,
+          margin: EdgeInsets.symmetric(vertical: 8.0),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ExpansionTile(
+            tilePadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            title: Text(
+              'Entry ${index + 1} - ${savedData[index]['Name'] ?? 'Unnamed'}',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: Icon(Icons.remove_red_eye_outlined),
-                  onPressed: () => _showInvoiceInWebView(savedData[index]),
-                ),
-                IconButton(
-                  icon: Icon(Icons.print),
-                  onPressed: () => _generateAndDownloadBill(savedData[index]),
-                ),
-              ],
+            subtitle: Text(
+              'Date: ${savedData[index]['date'] ?? 'N/A'}',
+              style: TextStyle(color: Colors.grey[600]),
             ),
+            children: [
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: savedData[index]
+                      .entries
+                      .map((e) => Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('${e.key}:',
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.w500)),
+                                Text(e.value,
+                                    style: TextStyle(color: Colors.blueAccent)),
+                              ],
+                            ),
+                          ))
+                      .toList(),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.all(8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    ElevatedButton.icon(
+                      icon: Icon(Icons.remove_red_eye_outlined, size: 18),
+                      label: Text('View'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueAccent,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      onPressed: () => _showInvoiceInWebView(savedData[index]),
+                    ),
+                    SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      icon: Icon(Icons.print, size: 18),
+                      label: Text('Print'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueAccent,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      onPressed: () =>
+                          _generateAndDownloadBill(savedData[index]),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -618,7 +875,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
         title: Text('Collection'),
         actions: [
           IconButton(
-            icon: Icon(Icons.download),
+            icon: Icon(Icons.download, size: 28),
+            tooltip: 'Export to CSV',
             onPressed: _exportToCsv,
           ),
         ],
@@ -626,43 +884,50 @@ class _CollectionScreenState extends State<CollectionScreen> {
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: SingleChildScrollView(
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    children: [
-                      ...fields.map((field) => _buildField(field)).toList(),
-                      SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blueAccent,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                            ),
-                            onPressed: _saveData,
-                            child: Text('Save',
-                                style: TextStyle(
-                                    fontSize: 16, fontWeight: FontWeight.bold)),
+                          Text('Add New Entry',
+                              style: Theme.of(context).textTheme.titleLarge),
+                          SizedBox(height: 16),
+                          ...fields.map((field) => _buildField(field)).toList(),
+                          SizedBox(height: 20),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              ElevatedButton.icon(
+                                icon: Icon(Icons.save),
+                                label: Text('Save'),
+                                onPressed: _saveData,
+                              ),
+                              TextButton.icon(
+                                icon: Icon(Icons.clear, color: Colors.red),
+                                label: Text('Clear All',
+                                    style: TextStyle(color: Colors.red)),
+                                onPressed: _clearAllFields,
+                              ),
+                            ],
                           ),
-                          TextButton(
-                            onPressed: _clearAllFields,
-                            child: Text('Clear All',
-                                style:
-                                    TextStyle(color: Colors.red, fontSize: 16)),
-                          ),
+                          SizedBox(height: 20),
+                          Text('Saved Data',
+                              style: Theme.of(context).textTheme.titleLarge),
+                          SizedBox(height: 10),
+                          _buildSavedDataList(),
                         ],
                       ),
-                      SizedBox(height: 20),
-                      Text('Saved Data',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
-                      _buildSavedDataList(),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -683,20 +948,13 @@ class InvoiceWebViewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Invoice Preview'),
-      ),
+      appBar: AppBar(title: Text('Invoice Preview')),
       body: InAppWebView(
         initialData: InAppWebViewInitialData(
-          data: htmlContent,
-          mimeType: 'text/html',
-          encoding: 'utf-8',
-        ),
+            data: htmlContent, mimeType: 'text/html', encoding: 'utf-8'),
         initialOptions: InAppWebViewGroupOptions(
           crossPlatform: InAppWebViewOptions(
-            javaScriptEnabled: true,
-            useShouldOverrideUrlLoading: true,
-          ),
+              javaScriptEnabled: true, useShouldOverrideUrlLoading: true),
         ),
         onWebViewCreated: (controller) {},
       ),
@@ -736,7 +994,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
       };
       setState(() {
         collectionBox.put('data', [dummyEntry]);
-        print("Stored dummy data: $dummyEntry"); // Debug print
       });
     }
   }
@@ -750,8 +1007,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
     List<Map<String, String>> collectionInfo = (storedData ?? [])
         .map((item) => Map<String, String>.from(item as Map))
         .toList();
-
-    print("All collection info: $collectionInfo"); // Debug print
 
     if (specificDate != null) {
       return collectionInfo
@@ -783,18 +1038,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
       context: context,
       isScrollControlled: true,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (context) {
         return Padding(
           padding: EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                "Data for $selectedDate",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
+              Text("Data for $selectedDate",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               SizedBox(height: 10),
               filteredData.isNotEmpty
                   ? SizedBox(
@@ -846,13 +1098,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Future<void> _exportToCsv() async {
     try {
       List<Map<String, String>> collectionInfo = getFilteredCollectionInfo();
-      print(
-          "Filtered collection info for export: $collectionInfo"); // Debug print
 
       if (collectionInfo.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No data to export')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('No data to export')));
         return;
       }
 
@@ -861,10 +1110,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ...collectionInfo.map((entry) => entry.values.toList()),
       ];
 
-      print("CSV data prepared: $csvData"); // Debug print
-
       String csv = const ListToCsvConverter().convert(csvData);
-      print("Generated CSV string: $csv"); // Debug print
 
       if (kIsWeb) {
         final bytes = utf8.encode(csv);
@@ -877,25 +1123,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
         html.Url.revokeObjectUrl(url);
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('CSV downloaded via browser')),
-        );
+            SnackBar(content: Text('CSV downloaded via browser')));
       } else {
         if (await Permission.storage.request().isDenied) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text('Storage permission is required to export CSV')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Storage permission is required to export CSV')));
           return;
         }
 
         Directory? directory;
         try {
           directory = await getDownloadsDirectory();
-          if (directory == null) {
+          if (directory == null)
             throw Exception('Downloads directory not available');
-          }
         } catch (e) {
-          print("Error accessing Downloads directory: $e"); // Debug print
           directory = await getApplicationDocumentsDirectory();
         }
 
@@ -903,20 +1144,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
             'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv';
         final file = File('${directory.path}/$fileName');
 
-        print("Saving CSV to: ${file.path}"); // Debug print
-
         await directory.create(recursive: true);
         await file.writeAsString(csv);
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Report exported to ${file.path}')),
-        );
+            SnackBar(content: Text('Report exported to ${file.path}')));
       }
     } catch (e) {
-      print("Error in _exportToCsv: $e"); // Debug print
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to export CSV: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to export CSV: $e')));
     }
   }
 
@@ -1009,9 +1245,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   String _calculateTotalPayments(List<Map<String, String>> collectionInfo) {
-    double total = collectionInfo.fold(0.0, (sum, item) {
-      return sum + (double.tryParse(item["Amount"] ?? '0') ?? 0.0);
-    });
+    double total = collectionInfo.fold(0.0,
+        (sum, item) => sum + (double.tryParse(item["Amount"] ?? '0') ?? 0.0));
     return total.toStringAsFixed(2);
   }
 
@@ -1089,29 +1324,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
         color: Colors.grey[300],
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 2,
-            offset: Offset(1, 1),
-          ),
+          BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(1, 1))
         ],
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            title,
-            style: TextStyle(
-                color: Colors.black, fontWeight: FontWeight.w600, fontSize: 11),
-            textAlign: TextAlign.center,
-          ),
+          Text(title,
+              style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11),
+              textAlign: TextAlign.center),
           SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-                color: Colors.black, fontSize: 13, fontWeight: FontWeight.bold),
-          ),
+          Text(value,
+              style: TextStyle(
+                  color: Colors.black,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold)),
         ],
       ),
     );
