@@ -11,38 +11,59 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late Box<String> settingsBox;
   List<FieldModel> fields = [];
-
-  final List<String> fieldTypes = [
+  final TextEditingController _nameController = TextEditingController();
+  String _selectedType = 'Text';
+  bool _isMandatory = false;
+  bool _showAddFieldForm = false;
+  final List<String> _fieldTypes = [
     'Text',
     'Number',
+    'Dropdown',
     'Date',
-    'DateTime',
-    'Dropdown'
+    'DateTime'
   ];
-  final List<String> fixedFields = ['Name', 'Amount'];
+  int _dropdownOptionCount = 2;
+  List<TextEditingController> _optionControllers = [];
 
   @override
   void initState() {
     super.initState();
+    settingsBox = Hive.box<String>('settings');
     _loadFields();
   }
 
   Future<void> _loadFields() async {
-    settingsBox = Hive.box<String>('settings');
     String? storedFields = settingsBox.get('fields');
-
     if (storedFields != null && storedFields.isNotEmpty) {
       try {
-        List<dynamic> decodedFields = jsonDecode(storedFields);
         setState(() {
-          fields = decodedFields.map((e) => FieldModel.fromJson(e)).toList();
+          fields = (jsonDecode(storedFields) as List)
+              .map((e) => FieldModel.fromJson(e))
+              .toList();
         });
       } catch (e) {
-        setState(() {
-          fields = [];
-        });
+        _resetToDefaultFields();
       }
     }
+  }
+
+  void _resetToDefaultFields() {
+    setState(() {
+      fields = [
+        FieldModel(name: 'Name', type: 'Text', isMandatory: true),
+        FieldModel(name: 'Age', type: 'Number', isMandatory: true),
+        FieldModel(name: 'Number', type: 'Number', isMandatory: true),
+        FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
+        FieldModel(name: 'Address', type: 'Text', isMandatory: false),
+        FieldModel(
+          name: 'Gender',
+          type: 'Dropdown',
+          isMandatory: true,
+          options: ['Male', 'Female'],
+        ),
+      ];
+      _saveFields();
+    });
   }
 
   void _saveFields() {
@@ -50,208 +71,174 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
   }
 
-  void _addNewField() {
-    _showFieldDialog(isEdit: false);
-  }
-
-  void _editField(int index) {
-    _showFieldDialog(isEdit: true, fieldIndex: index);
-  }
-
-  void _showFieldDialog({required bool isEdit, int? fieldIndex}) {
-    String title = isEdit ? 'Edit Field' : 'Add New Field';
-    FieldModel? editingField = isEdit ? fields[fieldIndex!] : null;
-
-    TextEditingController fieldNameController =
-        TextEditingController(text: editingField?.name ?? '');
-    String selectedType = editingField?.type ?? fieldTypes[0];
-    bool isMandatory = editingField?.isMandatory ?? false;
-    List<String> dropdownOptions = List.from(editingField?.options ?? []);
-    TextEditingController optionController = TextEditingController();
-    String? errorText;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            return AlertDialog(
-              title: Text(title),
-              content: SizedBox(
-                width: 300,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: fieldNameController,
-                        maxLength: 30,
-                        decoration: InputDecoration(
-                          hintText: 'Enter field name',
-                          errorText: errorText,
-                        ),
-                      ),
-                      SizedBox(height: 10),
-                      DropdownButtonFormField<String>(
-                        value: selectedType,
-                        items: fieldTypes.map((type) {
-                          return DropdownMenuItem(
-                              value: type, child: Text(type));
-                        }).toList(),
-                        onChanged: isEdit && selectedType == 'Dropdown'
-                            ? null
-                            : (value) {
-                                setStateDialog(() {
-                                  selectedType = value!;
-                                  if (selectedType != 'Dropdown') {
-                                    dropdownOptions.clear();
-                                  }
-                                });
-                              },
-                        decoration: InputDecoration(labelText: 'Field Type'),
-                      ),
-                      SizedBox(height: 10),
-                      SwitchListTile(
-                        title: Text('Mandatory'),
-                        value: isMandatory,
-                        onChanged: (value) {
-                          setStateDialog(() {
-                            isMandatory = value;
-                          });
-                        },
-                      ),
-                      if (selectedType == 'Dropdown') ...[
-                        SizedBox(height: 10),
-                        Text('Dropdown Options',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
-                        SizedBox(height: 5),
-                        Container(
-                          constraints: BoxConstraints(maxHeight: 150),
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: dropdownOptions.length,
-                            itemBuilder: (context, index) {
-                              return ListTile(
-                                title: Text(dropdownOptions[index]),
-                                trailing: IconButton(
-                                  icon: Icon(Icons.delete, color: Colors.red),
-                                  onPressed: () {
-                                    setStateDialog(() {
-                                      dropdownOptions.removeAt(index);
-                                    });
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: optionController,
-                                decoration:
-                                    InputDecoration(hintText: 'Enter option'),
-                              ),
-                            ),
-                            IconButton(
-                              icon: Icon(Icons.add),
-                              onPressed: () {
-                                if (optionController.text.trim().isNotEmpty) {
-                                  setStateDialog(() {
-                                    dropdownOptions
-                                        .add(optionController.text.trim());
-                                    optionController.clear();
-                                  });
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text('Cancel'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    String fieldName = fieldNameController.text.trim();
-
-                    if (fieldName.isEmpty) {
-                      setStateDialog(() {
-                        errorText = "Field name cannot be empty";
-                      });
-                      return;
-                    }
-
-                    bool isDuplicate = fields.any((field) =>
-                        field.name.toLowerCase() == fieldName.toLowerCase() &&
-                        (!isEdit || fields[fieldIndex!].name != fieldName));
-
-                    if (isDuplicate) {
-                      setStateDialog(() {
-                        errorText = "Field name already exists";
-                      });
-                      return;
-                    }
-
-                    if (selectedType == 'Dropdown' && dropdownOptions.isEmpty) {
-                      setStateDialog(() {
-                        errorText = "Dropdown must have at least one option";
-                      });
-                      return;
-                    }
-
-                    setState(() {
-                      if (isEdit) {
-                        fields[fieldIndex!] = FieldModel(
-                          name: fieldName,
-                          type: selectedType,
-                          isMandatory: isMandatory,
-                          options:
-                              selectedType == 'Dropdown' ? dropdownOptions : [],
-                        );
-                      } else {
-                        fields.add(FieldModel(
-                          name: fieldName,
-                          type: selectedType,
-                          isMandatory: isMandatory,
-                          options:
-                              selectedType == 'Dropdown' ? dropdownOptions : [],
-                        ));
-                      }
-                      _saveFields();
-                    });
-                    Navigator.pop(context);
-                  },
-                  child: Text(isEdit ? 'Update' : 'Add'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _deleteField(int index) {
-    FieldModel field = fields[index];
-    if (fixedFields.contains(field.name)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("${field.name} cannot be deleted.")),
-      );
-      return;
+  void _addField() {
+    if (_nameController.text.isNotEmpty) {
+      List<String> options = [];
+      if (_selectedType == 'Dropdown') {
+        options = _optionControllers
+            .map((controller) => controller.text.trim())
+            .where((text) => text.isNotEmpty)
+            .toList();
+        if (options.isEmpty) {
+          options = ['Male', 'Female']; // Default meaningful options
+        }
+      }
+      setState(() {
+        fields.add(FieldModel(
+          name: _nameController.text,
+          type: _selectedType,
+          isMandatory: _isMandatory,
+          options: options,
+        ));
+        _nameController.clear();
+        _selectedType = 'Text';
+        _isMandatory = false;
+        _dropdownOptionCount = 2;
+        _optionControllers.clear();
+        _showAddFieldForm = false;
+        _saveFields();
+      });
     }
+  }
+
+  void _removeField(int index) {
     setState(() {
       fields.removeAt(index);
       _saveFields();
     });
+  }
+
+  void _editField(int index) {
+    final field = fields[index];
+    _nameController.text = field.name;
+    _selectedType = field.type;
+    _isMandatory = field.isMandatory;
+    _dropdownOptionCount = field.options.length;
+    _optionControllers = field.options
+        .map((option) => TextEditingController(text: option))
+        .toList();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Edit Field'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _nameController,
+                decoration: InputDecoration(
+                  labelText: 'Field Name',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedType,
+                decoration: InputDecoration(
+                  labelText: 'Field Type',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                items: _fieldTypes
+                    .map((type) =>
+                        DropdownMenuItem(value: type, child: Text(type)))
+                    .toList(),
+                onChanged: (value) => setState(() => _selectedType = value!),
+              ),
+              SizedBox(height: 12),
+              if (_selectedType == 'Dropdown') ...[
+                DropdownButtonFormField<int>(
+                  value: _dropdownOptionCount,
+                  decoration: InputDecoration(
+                    labelText: 'Number of Options',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  items: List.generate(10, (index) => index + 1)
+                      .map((count) =>
+                          DropdownMenuItem(value: count, child: Text('$count')))
+                      .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _dropdownOptionCount = value!;
+                      while (_optionControllers.length < _dropdownOptionCount) {
+                        _optionControllers.add(TextEditingController());
+                      }
+                      while (_optionControllers.length > _dropdownOptionCount) {
+                        _optionControllers.removeLast();
+                      }
+                    });
+                  },
+                ),
+                SizedBox(height: 12),
+                ...List.generate(
+                  _dropdownOptionCount,
+                  (index) => Padding(
+                    padding: EdgeInsets.only(bottom: 8.0),
+                    child: TextField(
+                      controller: _optionControllers[index],
+                      decoration: InputDecoration(
+                        labelText: 'Option ${index + 1}',
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              SizedBox(height: 12),
+              CheckboxListTile(
+                title: Text('Mandatory'),
+                value: _isMandatory,
+                onChanged: (value) => setState(() => _isMandatory = value!),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (_nameController.text.isNotEmpty) {
+                List<String> options = _selectedType == 'Dropdown'
+                    ? _optionControllers
+                        .map((controller) => controller.text.trim())
+                        .where((text) => text.isNotEmpty)
+                        .toList()
+                    : [];
+                if (_selectedType == 'Dropdown' && options.isEmpty) {
+                  options = field.options.isNotEmpty
+                      ? field.options
+                      : ['Male', 'Female'];
+                }
+                setState(() {
+                  fields[index] = FieldModel(
+                    name: _nameController.text,
+                    type: _selectedType,
+                    isMandatory: _isMandatory,
+                    options: options,
+                  );
+                  _saveFields();
+                  _nameController.clear();
+                  _selectedType = 'Text';
+                  _isMandatory = false;
+                  _dropdownOptionCount = 2;
+                  _optionControllers.clear();
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: Text('Save'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -263,45 +250,142 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text('Manage Fields',
+                style: Theme.of(context).textTheme.titleLarge),
+            SizedBox(height: 16),
+            if (_showAddFieldForm) ...[
+              TextField(
+                controller: _nameController,
+                decoration: InputDecoration(
+                  labelText: 'Field Name',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedType,
+                decoration: InputDecoration(
+                  labelText: 'Field Type',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                items: _fieldTypes
+                    .map((type) =>
+                        DropdownMenuItem(value: type, child: Text(type)))
+                    .toList(),
+                onChanged: (value) => setState(() => _selectedType = value!),
+              ),
+              if (_selectedType == 'Dropdown') ...[
+                SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  value: _dropdownOptionCount,
+                  decoration: InputDecoration(
+                    labelText: 'Number of Options',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  items: List.generate(10, (index) => index + 1)
+                      .map((count) =>
+                          DropdownMenuItem(value: count, child: Text('$count')))
+                      .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _dropdownOptionCount = value!;
+                      while (_optionControllers.length < _dropdownOptionCount) {
+                        _optionControllers.add(TextEditingController());
+                      }
+                      while (_optionControllers.length > _dropdownOptionCount) {
+                        _optionControllers.removeLast();
+                      }
+                    });
+                  },
+                ),
+                SizedBox(height: 12),
+                ...List.generate(
+                  _dropdownOptionCount,
+                  (index) => Padding(
+                    padding: EdgeInsets.only(bottom: 8.0),
+                    child: TextField(
+                      controller: _optionControllers.length > index
+                          ? _optionControllers[index]
+                          : (_optionControllers.add(TextEditingController())
+                              as Null),
+                      decoration: InputDecoration(
+                        labelText: 'Option ${index + 1}',
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              SizedBox(height: 12),
+              CheckboxListTile(
+                title: Text('Mandatory'),
+                value: _isMandatory,
+                onChanged: (value) => setState(() => _isMandatory = value!),
+              ),
+              SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  ElevatedButton.icon(
+                    icon: Icon(Icons.add),
+                    label: Text('Save Field'),
+                    onPressed: _addField,
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() => _showAddFieldForm = false),
+                    child: Text('Cancel', style: TextStyle(color: Colors.red)),
+                  ),
+                ],
+              ),
+            ] else ...[
+              ElevatedButton.icon(
+                icon: Icon(Icons.add),
+                label: Text('Add Field'),
+                onPressed: () => setState(() => _showAddFieldForm = true),
+              ),
+            ],
+            SizedBox(height: 20),
+            Text('Current Fields',
+                style: Theme.of(context).textTheme.titleLarge),
             Expanded(
               child: ListView.builder(
                 itemCount: fields.length,
                 itemBuilder: (context, index) {
-                  FieldModel field = fields[index];
-                  return ListTile(
-                    title: Text('${field.name} (${field.type})'),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (field.isMandatory)
-                          Text('Mandatory',
-                              style: TextStyle(color: Colors.red)),
-                        if (field.type == 'Dropdown' &&
-                            field.options.isNotEmpty)
-                          Text('Options: ${field.options.join(', ')}'),
-                      ],
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: Icon(Icons.edit, color: Colors.blue),
-                          onPressed: () => _editField(index),
-                        ),
-                        if (!fixedFields.contains(field.name))
+                  final field = fields[index];
+                  final isProtectedField = field.name.toLowerCase() == 'name' ||
+                      field.name.toLowerCase() == 'amount';
+                  return Card(
+                    elevation: 2,
+                    margin: EdgeInsets.symmetric(vertical: 6),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      title: Text('${field.name} (${field.type})'),
+                      subtitle: field.type == 'Dropdown'
+                          ? Text('Options: ${field.options.join(', ')}')
+                          : null,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           IconButton(
-                            icon: Icon(Icons.delete, color: Colors.red),
-                            onPressed: () => _deleteField(index),
+                            icon: Icon(Icons.edit, color: Colors.blue),
+                            onPressed: () => _editField(index),
                           ),
-                      ],
+                          if (!isProtectedField)
+                            IconButton(
+                              icon: Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _removeField(index),
+                            ),
+                        ],
+                      ),
                     ),
                   );
                 },
               ),
-            ),
-            ElevatedButton(
-              onPressed: _addNewField,
-              child: Text('Add New Field'),
             ),
           ],
         ),

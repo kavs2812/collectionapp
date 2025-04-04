@@ -10,62 +10,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
 import 'package:csv/csv.dart';
-import 'dart:html' as html; // For web support
-import 'dart:typed_data'; // For handling bytes
-import 'dart:ui' show kIsWeb; // Import for kIsWeb
-import 'package:flutter_inappwebview/flutter_inappwebview.dart'; // For WebView
-
-// FieldModel class
-class FieldModel {
-  String name;
-  String type;
-  bool isMandatory;
-  List<String> options;
-
-  FieldModel({
-    required this.name,
-    required this.type,
-    required this.isMandatory,
-    this.options = const [],
-  });
-
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'type': type,
-        'isMandatory': isMandatory,
-        'options': options,
-      };
-
-  factory FieldModel.fromJson(Map<String, dynamic> json) => FieldModel(
-        name: json['name'],
-        type: json['type'],
-        isMandatory: json['isMandatory'],
-        options: (json['options'] as List<dynamic>?)?.cast<String>() ?? [],
-      );
-}
-
-class FieldModelAdapter extends TypeAdapter<FieldModel> {
-  @override
-  final int typeId = 0;
-
-  @override
-  FieldModel read(BinaryReader reader) {
-    return FieldModel(
-      name: reader.readString(),
-      type: reader.readString(),
-      isMandatory: reader.readBool(),
-      options: reader.readStringList(),
-    );
-  }
-
-  @override
-  void write(BinaryWriter writer, FieldModel obj) {
-    writer.writeString(obj.name);
-    writer.writeString(obj.type);
-    writer.writeBool(obj.isMandatory);
-    writer.writeStringList(obj.options);
-  }
-}
+import 'package:universal_html/html.dart' as html;
+import 'dart:typed_data';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:share_plus/share_plus.dart';
+import 'field_model.dart';
+import 'settings_screen.dart'; // Import the SettingsScreen
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -150,166 +100,82 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-class SettingsScreen extends StatefulWidget {
-  @override
-  _SettingsScreenState createState() => _SettingsScreenState();
-}
+Future<void> saveAndDownloadFile(
+    Uint8List bytes, String fileName, String mimeType) async {
+  if (kIsWeb) {
+    final blob = html.Blob([bytes], mimeType);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', fileName)
+      ..click();
+    html.Url.revokeObjectUrl(url);
+  } else if (Platform.isAndroid || Platform.isIOS) {
+    final directory = await getApplicationDocumentsDirectory();
+    final filePath = '${directory.path}/$fileName';
+    final file = File(filePath);
+    await file.writeAsBytes(bytes);
 
-class _SettingsScreenState extends State<SettingsScreen> {
-  late Box<String> settingsBox;
-  List<FieldModel> fields = [];
-  final TextEditingController _nameController = TextEditingController();
-  String _selectedType = 'Text';
-  bool _isMandatory = false;
-  final List<String> _fieldTypes = [
-    'Text',
-    'Number',
-    'Dropdown',
-    'Date',
-    'DateTime'
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    settingsBox = Hive.box<String>('settings');
-    _loadFields();
-  }
-
-  Future<void> _loadFields() async {
-    String? storedFields = settingsBox.get('fields');
-    if (storedFields != null && storedFields.isNotEmpty) {
-      try {
-        setState(() {
-          fields = (jsonDecode(storedFields) as List)
-              .map((e) => FieldModel.fromJson(e))
-              .toList();
-        });
-      } catch (e) {
-        _resetToDefaultFields();
+    if (Platform.isAndroid) {
+      var status = await Permission.storage.status;
+      if (!status.isGranted) {
+        await Permission.storage.request();
       }
     }
-  }
 
-  void _resetToDefaultFields() {
-    setState(() {
-      fields = [
-        FieldModel(name: 'Name', type: 'Text', isMandatory: true),
-        FieldModel(name: 'Age', type: 'Number', isMandatory: true),
-        FieldModel(name: 'Number', type: 'Number', isMandatory: true),
-        FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
-        FieldModel(name: 'Address', type: 'Text', isMandatory: false),
-      ];
-      _saveFields();
-    });
+    await Share.shareXFiles([XFile(filePath, mimeType: mimeType)],
+        subject: 'Sharing $fileName');
   }
+}
 
-  void _saveFields() {
-    settingsBox.put(
-        'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
-  }
+// FieldModel and FieldModelAdapter remain unchanged
+class FieldModel {
+  String name;
+  String type;
+  bool isMandatory;
+  List<String> options;
 
-  void _addField() {
-    if (_nameController.text.isNotEmpty) {
-      setState(() {
-        fields.add(FieldModel(
-          name: _nameController.text,
-          type: _selectedType,
-          isMandatory: _isMandatory,
-          options: _selectedType == 'Dropdown' ? ['Option 1', 'Option 2'] : [],
-        ));
-        _nameController.clear();
-        _selectedType = 'Text';
-        _isMandatory = false;
-        _saveFields();
-      });
-    }
-  }
+  FieldModel({
+    required this.name,
+    required this.type,
+    required this.isMandatory,
+    this.options = const [],
+  });
 
-  void _removeField(int index) {
-    setState(() {
-      fields.removeAt(index);
-      _saveFields();
-    });
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'type': type,
+        'isMandatory': isMandatory,
+        'options': options,
+      };
+
+  factory FieldModel.fromJson(Map<String, dynamic> json) => FieldModel(
+        name: json['name'],
+        type: json['type'],
+        isMandatory: json['isMandatory'],
+        options: (json['options'] as List<dynamic>?)?.cast<String>() ?? [],
+      );
+}
+
+class FieldModelAdapter extends TypeAdapter<FieldModel> {
+  @override
+  final int typeId = 0;
+
+  @override
+  FieldModel read(BinaryReader reader) {
+    return FieldModel(
+      name: reader.readString(),
+      type: reader.readString(),
+      isMandatory: reader.readBool(),
+      options: reader.readStringList(),
+    );
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Settings'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Manage Fields',
-                style: Theme.of(context).textTheme.titleLarge),
-            SizedBox(height: 16),
-            TextField(
-              controller: _nameController,
-              decoration: InputDecoration(
-                labelText: 'Field Name',
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _selectedType,
-              decoration: InputDecoration(
-                labelText: 'Field Type',
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              items: _fieldTypes
-                  .map((type) =>
-                      DropdownMenuItem(value: type, child: Text(type)))
-                  .toList(),
-              onChanged: (value) => setState(() => _selectedType = value!),
-            ),
-            SizedBox(height: 12),
-            CheckboxListTile(
-              title: Text('Mandatory'),
-              value: _isMandatory,
-              onChanged: (value) => setState(() => _isMandatory = value!),
-            ),
-            SizedBox(height: 12),
-            ElevatedButton.icon(
-              icon: Icon(Icons.add),
-              label: Text('Add Field'),
-              onPressed: _addField,
-            ),
-            SizedBox(height: 20),
-            Text('Current Fields',
-                style: Theme.of(context).textTheme.titleLarge),
-            Expanded(
-              child: ListView.builder(
-                itemCount: fields.length,
-                itemBuilder: (context, index) {
-                  return Card(
-                    elevation: 2,
-                    margin: EdgeInsets.symmetric(vertical: 6),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    child: ListTile(
-                      title: Text(fields[index].name),
-                      subtitle: Text(
-                          'Type: ${fields[index].type} | Mandatory: ${fields[index].isMandatory}'),
-                      trailing: IconButton(
-                        icon: Icon(Icons.delete, color: Colors.red),
-                        onPressed: () => _removeField(index),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  void write(BinaryWriter writer, FieldModel obj) {
+    writer.writeString(obj.name);
+    writer.writeString(obj.type);
+    writer.writeBool(obj.isMandatory);
+    writer.writeStringList(obj.options);
   }
 }
 
@@ -332,6 +198,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
     FieldModel(name: 'Number', type: 'Number', isMandatory: true),
     FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
     FieldModel(name: 'Address', type: 'Text', isMandatory: false),
+    FieldModel(
+      name: 'Gender',
+      type: 'Dropdown',
+      isMandatory: true,
+      options: ['Male', 'Female'],
+    ),
   ];
 
   @override
@@ -346,7 +218,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
     dataBox = Hive.box<List>('collection_data');
 
     String? storedFields = settingsBox.get('fields');
-
     if (storedFields != null && storedFields.isNotEmpty) {
       try {
         setState(() {
@@ -360,15 +231,14 @@ class _CollectionScreenState extends State<CollectionScreen> {
     } else {
       _resetToDefaultFields();
     }
-
     _initializeControllers();
   }
 
   void _resetToDefaultFields() {
     setState(() {
       fields = defaultFields;
+      _saveFields();
     });
-    _saveFields();
   }
 
   void _saveFields() {
@@ -383,9 +253,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   void _loadSavedData() {
-    dataBox = Hive.box<List>('collection_data');
     List<dynamic>? storedData = dataBox.get('data');
-
     if (storedData != null) {
       setState(() {
         savedData = storedData.cast<Map<String, String>>();
@@ -397,6 +265,35 @@ class _CollectionScreenState extends State<CollectionScreen> {
     setState(() {
       _controllers.forEach((key, controller) => controller.clear());
     });
+  }
+
+  void _deleteData(int index) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Confirm Delete'),
+        content: Text('Are you sure you want to delete this entry?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                savedData.removeAt(index);
+                dataBox.put('data', savedData);
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Entry deleted successfully')));
+            },
+            child: Text('Delete'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildField(FieldModel field) {
@@ -421,7 +318,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
   Widget _buildFieldContent(FieldModel field) {
     if (field.type == 'Dropdown') {
       return DropdownButtonFormField<String>(
-        value: _controllers[field.name]!.text.isNotEmpty
+        value: _controllers[field.name]!.text.isNotEmpty &&
+                field.options.contains(_controllers[field.name]!.text)
             ? _controllers[field.name]!.text
             : null,
         decoration: InputDecoration(
@@ -435,7 +333,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
                 DropdownMenuItem(value: option, child: Text(option)))
             .toList(),
         onChanged: (value) {
-          if (value != null) _controllers[field.name]!.text = value;
+          setState(() {
+            if (value != null) {
+              _controllers[field.name]!.text = value;
+            }
+          });
         },
         validator: (value) =>
             field.isMandatory && (value == null || value.isEmpty)
@@ -562,7 +464,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
       });
 
       dataBox.put('data', savedData);
-
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Data Saved Successfully')));
     }
@@ -571,7 +472,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
   Future<void> _generateAndDownloadBill(Map<String, String> data) async {
     try {
       final pdf = pw.Document();
-
       pdf.addPage(
         pw.Page(
           build: (pw.Context context) => pw.Column(
@@ -621,48 +521,15 @@ class _CollectionScreenState extends State<CollectionScreen> {
       );
 
       final pdfBytes = await pdf.save();
+      final fileName =
+          'bill_${data['date']?.replaceAll(':', '-') ?? 'unknown'}_${DateTime.now().millisecondsSinceEpoch}.pdf';
 
-      if (kIsWeb) {
-        final blob = html.Blob([pdfBytes], 'application/pdf');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..setAttribute('download',
-              'bill_${data['date']?.replaceAll(':', '-') ?? 'unknown'}_${DateTime.now().millisecondsSinceEpoch}.pdf')
-          ..click();
-        html.Url.revokeObjectUrl(url);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Bill downloaded via browser')));
-      } else {
-        if (await Permission.storage.request().isDenied) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content:
-                  Text('Storage permission is required to save the bill')));
-          return;
-        }
-
-        Directory? directory;
-        try {
-          directory = await getDownloadsDirectory();
-          if (directory == null)
-            throw Exception('Downloads directory not available');
-        } catch (e) {
-          directory = await getApplicationDocumentsDirectory();
-        }
-
-        final fileName =
-            'bill_${data['date']?.replaceAll(':', '-') ?? 'unknown'}_${DateTime.now().millisecondsSinceEpoch}.pdf';
-        final file = File('${directory.path}/$fileName');
-
-        await directory.create(recursive: true);
-        await file.writeAsBytes(pdfBytes);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Bill downloaded to ${file.path}')));
-      }
+      await saveAndDownloadFile(pdfBytes, fileName, 'application/pdf');
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Bill generated successfully')));
     } catch (e) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to download bill: $e')));
+          .showSnackBar(SnackBar(content: Text('Failed to generate bill: $e')));
     }
   }
 
@@ -724,59 +591,26 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   Future<void> _exportToCsv() async {
     try {
-      List<Map<String, String>> collectionInfo = savedData;
-
-      if (collectionInfo.isEmpty) {
+      if (savedData.isEmpty) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('No data to export')));
         return;
       }
 
       List<List<dynamic>> csvData = [
-        collectionInfo.first.keys.toList(),
-        ...collectionInfo.map((entry) => entry.values.toList()),
+        savedData.first.keys.toList(),
+        ...savedData.map((entry) => entry.values.toList()),
       ];
 
       String csv = const ListToCsvConverter().convert(csvData);
+      final fileName =
+          'collection_${DateTime.now().millisecondsSinceEpoch}.csv';
+      final bytes = utf8.encode(csv);
 
-      if (kIsWeb) {
-        final bytes = utf8.encode(csv);
-        final blob = html.Blob([bytes], 'text/csv');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..setAttribute('download',
-              'collection_${DateTime.now().millisecondsSinceEpoch}.csv')
-          ..click();
-        html.Url.revokeObjectUrl(url);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('CSV downloaded via browser')));
-      } else {
-        if (await Permission.storage.request().isDenied) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('Storage permission is required to export CSV')));
-          return;
-        }
-
-        Directory? directory;
-        try {
-          directory = await getDownloadsDirectory();
-          if (directory == null)
-            throw Exception('Downloads directory not available');
-        } catch (e) {
-          directory = await getApplicationDocumentsDirectory();
-        }
-
-        final fileName =
-            'collection_${DateTime.now().millisecondsSinceEpoch}.csv';
-        final file = File('${directory.path}/$fileName');
-
-        await directory.create(recursive: true);
-        await file.writeAsString(csv);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('CSV exported to ${file.path}')));
-      }
+      await saveAndDownloadFile(
+          Uint8List.fromList(bytes), fileName, 'text/csv');
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('CSV exported successfully')));
     } catch (e) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Failed to export CSV: $e')));
@@ -857,6 +691,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
                       ),
                       onPressed: () =>
                           _generateAndDownloadBill(savedData[index]),
+                    ),
+                    SizedBox(width: 8),
+                    IconButton(
+                      icon: Icon(Icons.delete, color: Colors.red),
+                      onPressed: () => _deleteData(index),
                     ),
                   ],
                 ),
@@ -956,7 +795,6 @@ class InvoiceWebViewScreen extends StatelessWidget {
           crossPlatform: InAppWebViewOptions(
               javaScriptEnabled: true, useShouldOverrideUrlLoading: true),
         ),
-        onWebViewCreated: (controller) {},
       ),
     );
   }
@@ -990,6 +828,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         "Number": "1234567890",
         "Amount": "500",
         "Address": "123 Poultry Street",
+        "Gender": "Male",
         "date": DateFormat('yyyy-MM-dd HH:mm:ss').format(yesterday),
       };
       setState(() {
@@ -1025,8 +864,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
           .where((entry) =>
               entry["date"]?.toString().startsWith(yesterday) ?? false)
           .toList();
+    } else if (selectedFilter == "This Week") {
+      DateTime monday =
+          DateTime.now().subtract(Duration(days: DateTime.now().weekday - 1));
+      return collectionInfo
+          .where((entry) => DateTime.parse(entry["date"]!.substring(0, 10))
+              .isAfter(monday.subtract(Duration(days: 1))))
+          .toList();
+    } else if (selectedFilter == "This Month") {
+      DateTime firstDay =
+          DateTime(DateTime.now().year, DateTime.now().month, 1);
+      return collectionInfo
+          .where((entry) => DateTime.parse(entry["date"]!.substring(0, 10))
+              .isAfter(firstDay.subtract(Duration(days: 1))))
+          .toList();
     }
-
     return collectionInfo;
   }
 
@@ -1098,7 +950,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Future<void> _exportToCsv() async {
     try {
       List<Map<String, String>> collectionInfo = getFilteredCollectionInfo();
-
       if (collectionInfo.isEmpty) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('No data to export')));
@@ -1111,45 +962,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ];
 
       String csv = const ListToCsvConverter().convert(csvData);
+      final fileName =
+          'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv';
+      final bytes = utf8.encode(csv);
 
-      if (kIsWeb) {
-        final bytes = utf8.encode(csv);
-        final blob = html.Blob([bytes], 'text/csv');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..setAttribute('download',
-              'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv')
-          ..click();
-        html.Url.revokeObjectUrl(url);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('CSV downloaded via browser')));
-      } else {
-        if (await Permission.storage.request().isDenied) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('Storage permission is required to export CSV')));
-          return;
-        }
-
-        Directory? directory;
-        try {
-          directory = await getDownloadsDirectory();
-          if (directory == null)
-            throw Exception('Downloads directory not available');
-        } catch (e) {
-          directory = await getApplicationDocumentsDirectory();
-        }
-
-        final fileName =
-            'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv';
-        final file = File('${directory.path}/$fileName');
-
-        await directory.create(recursive: true);
-        await file.writeAsString(csv);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Report exported to ${file.path}')));
-      }
+      await saveAndDownloadFile(
+          Uint8List.fromList(bytes), fileName, 'text/csv');
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Report exported successfully')));
     } catch (e) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Failed to export CSV: $e')));
@@ -1257,14 +1077,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
         .map((item) => Map<String, String>.from(item as Map))
         .toList();
 
-    String filterDate = "";
-
     if (selectedFilter == "Today") {
       DateTime yesterday = now.subtract(Duration(days: 1));
-      filterDate = DateFormat('yyyy-MM-dd').format(yesterday);
+      String filterDate = DateFormat('yyyy-MM-dd').format(yesterday);
+      return collectionInfo
+          .where((entry) => entry["date"]?.startsWith(filterDate) ?? false)
+          .length
+          .toString();
     } else if (selectedFilter == "Yesterday") {
       DateTime lastWeekSameDay = now.subtract(Duration(days: 7));
-      filterDate = DateFormat('yyyy-MM-dd').format(lastWeekSameDay);
+      String filterDate = DateFormat('yyyy-MM-dd').format(lastWeekSameDay);
+      return collectionInfo
+          .where((entry) => entry["date"]?.startsWith(filterDate) ?? false)
+          .length
+          .toString();
     } else if (selectedFilter == "This Week") {
       DateTime lastMonday = now.subtract(Duration(days: now.weekday + 6));
       DateTime lastSunday = lastMonday.add(Duration(days: 6));
@@ -1295,11 +1121,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           .length
           .toString();
     }
-
-    return collectionInfo
-        .where((entry) => entry["date"]?.startsWith(filterDate) ?? false)
-        .length
-        .toString();
+    return "0";
   }
 
   String _calculateTotalClients(List<Map<String, String>> collectionInfo) {
