@@ -14,6 +14,7 @@ import 'package:universal_html/html.dart' as html;
 import 'dart:typed_data';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:flutter/services.dart' show rootBundle; // For loading assets
 import 'field_model.dart';
 import 'settings_screen.dart'; // Import the SettingsScreen
 
@@ -125,6 +126,12 @@ Future<void> saveAndDownloadFile(
     await Share.shareXFiles([XFile(filePath, mimeType: mimeType)],
         subject: 'Sharing $fileName');
   }
+}
+
+// Helper method to load image from assets
+Future<Uint8List> loadImageFromAssets(String path) async {
+  final byteData = await rootBundle.load(path);
+  return byteData.buffer.asUint8List();
 }
 
 // FieldModel and FieldModelAdapter remain unchanged
@@ -307,7 +314,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
             BoxShadow(
                 color: Colors.grey.withOpacity(0.1),
                 spreadRadius: 2,
-                blurRadius: 4),
+                blurRadius: 4,
+                offset: Offset(0, 2)),
           ],
         ),
         child: _buildFieldContent(field),
@@ -316,6 +324,19 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   Widget _buildFieldContent(FieldModel field) {
+    IconData prefixIcon;
+    if (field.type == 'Text') {
+      prefixIcon = Icons.text_fields; // "T" like icon
+    } else if (field.type == 'Number') {
+      prefixIcon = Icons.numbers; // "#" like icon
+    } else if (field.type == 'Dropdown') {
+      prefixIcon = Icons.arrow_drop_down;
+    } else if (field.type == 'Date' || field.type == 'DateTime') {
+      prefixIcon = Icons.calendar_today;
+    } else {
+      prefixIcon = Icons.text_fields;
+    }
+
     if (field.type == 'Dropdown') {
       return DropdownButtonFormField<String>(
         value: _controllers[field.name]!.text.isNotEmpty &&
@@ -323,7 +344,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
             ? _controllers[field.name]!.text
             : null,
         decoration: InputDecoration(
-          prefixIcon: Icon(Icons.arrow_drop_down, color: Colors.blueAccent),
+          prefixIcon: Icon(prefixIcon, color: Colors.blueAccent),
           labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -350,7 +371,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       return TextFormField(
         controller: _controllers[field.name],
         decoration: InputDecoration(
-          prefixIcon: Icon(Icons.calendar_today, color: Colors.blueAccent),
+          prefixIcon: Icon(prefixIcon, color: Colors.blueAccent),
           labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           suffixIcon: IconButton(
@@ -383,7 +404,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       return TextFormField(
         controller: _controllers[field.name],
         decoration: InputDecoration(
-          prefixIcon: Icon(Icons.calendar_today, color: Colors.blueAccent),
+          prefixIcon: Icon(prefixIcon, color: Colors.blueAccent),
           labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           suffixIcon: IconButton(
@@ -428,9 +449,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
     return TextFormField(
       controller: _controllers[field.name],
       decoration: InputDecoration(
-        prefixIcon: Icon(
-            field.type == 'Number' ? Icons.numbers : Icons.text_fields,
-            color: Colors.blueAccent),
+        prefixIcon: Icon(prefixIcon, color: Colors.blueAccent),
         labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -472,11 +491,23 @@ class _CollectionScreenState extends State<CollectionScreen> {
   Future<void> _generateAndDownloadBill(Map<String, String> data) async {
     try {
       final pdf = pw.Document();
+
+      // Load the logo image
+      final Uint8List logoImage =
+          await loadImageFromAssets('assets/images/logo.png');
+
       pdf.addPage(
         pw.Page(
           build: (pw.Context context) => pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
+              // Add the logo at the top
+              pw.Image(
+                pw.MemoryImage(logoImage),
+                width: 100,
+                height: 100,
+              ),
+              pw.SizedBox(height: 20),
               pw.Text('Bill Receipt',
                   style: pw.TextStyle(
                       fontSize: 24, fontWeight: pw.FontWeight.bold)),
@@ -533,7 +564,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
   }
 
-  String _generateHtmlInvoice(Map<String, String> data) {
+  Future<String> _generateHtmlInvoice(Map<String, String> data) async {
+    // Load the logo image
+    final Uint8List logoImage =
+        await loadImageFromAssets('assets/images/logo.png');
+    final String base64Image = base64Encode(logoImage);
+
     return '''
     <!DOCTYPE html>
     <html lang="en">
@@ -548,10 +584,14 @@ class _CollectionScreenState extends State<CollectionScreen> {
         .invoice-box table tr td:nth-child(2) { text-align: right; }
         .invoice-box .title { font-size: 24px; text-align: center; margin-bottom: 20px; }
         .invoice-box .header { background-color: #f7f7f7; font-weight: bold; }
+        .logo { text-align: center; margin-bottom: 20px; }
       </style>
     </head>
     <body>
       <div class="invoice-box">
+        <div class="logo">
+          <img src="data:image/png;base64,$base64Image" alt="Logo" style="width: 100px; height: 100px;">
+        </div>
         <div class="title">Invoice Receipt</div>
         <table>
           <tr class="header">
@@ -580,8 +620,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
     ''';
   }
 
-  void _showInvoiceInWebView(Map<String, String> data) {
-    final htmlContent = _generateHtmlInvoice(data);
+  void _showInvoiceInWebView(Map<String, String> data) async {
+    final htmlContent = await _generateHtmlInvoice(data);
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -710,15 +750,53 @@ class _CollectionScreenState extends State<CollectionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Collection'),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.download, size: 28),
-            tooltip: 'Export to CSV',
-            onPressed: _exportToCsv,
-          ),
-        ],
+      appBar: PreferredSize(
+        preferredSize: Size.fromHeight(56.0),
+        child: FutureBuilder<Uint8List>(
+          future: loadImageFromAssets('assets/images/logo.png'),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.done &&
+                snapshot.hasData) {
+              return AppBar(
+                backgroundColor: Colors.blue,
+                elevation: 4,
+                title: Row(
+                  children: [
+                    Image.memory(snapshot.data!, width: 24, height: 24),
+                    SizedBox(width: 8),
+                    Text(
+                      'Collection',
+                      style: TextStyle(color: Colors.white, fontSize: 20),
+                    ),
+                  ],
+                ),
+                actions: [
+                  IconButton(
+                    icon: Icon(Icons.download, size: 28, color: Colors.white),
+                    tooltip: 'Export to CSV',
+                    onPressed: _exportToCsv,
+                  ),
+                ],
+              );
+            } else {
+              return AppBar(
+                backgroundColor: Colors.blue,
+                elevation: 4,
+                title: Text(
+                  'Collection',
+                  style: TextStyle(color: Colors.white, fontSize: 20),
+                ),
+                actions: [
+                  IconButton(
+                    icon: Icon(Icons.download, size: 28, color: Colors.white),
+                    tooltip: 'Export to CSV',
+                    onPressed: _exportToCsv,
+                  ),
+                ],
+              );
+            }
+          },
+        ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
