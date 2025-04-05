@@ -14,59 +14,8 @@ import 'package:universal_html/html.dart' as html;
 import 'dart:typed_data';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:flutter/services.dart' show rootBundle;
-
-// FieldModel class
-class FieldModel {
-  String name;
-  String type;
-  bool isMandatory;
-  List<String> options;
-
-  FieldModel({
-    required this.name,
-    required this.type,
-    required this.isMandatory,
-    this.options = const [],
-  });
-
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'type': type,
-        'isMandatory': isMandatory,
-        'options': options,
-      };
-
-  factory FieldModel.fromJson(Map<String, dynamic> json) => FieldModel(
-        name: json['name'],
-        type: json['type'],
-        isMandatory: json['isMandatory'],
-        options: (json['options'] as List<dynamic>?)?.cast<String>() ?? [],
-      );
-}
-
-class FieldModelAdapter extends TypeAdapter<FieldModel> {
-  @override
-  final int typeId = 0;
-
-  @override
-  FieldModel read(BinaryReader reader) {
-    return FieldModel(
-      name: reader.readString(),
-      type: reader.readString(),
-      isMandatory: reader.readBool(),
-      options: reader.readStringList(),
-    );
-  }
-
-  @override
-  void write(BinaryWriter writer, FieldModel obj) {
-    writer.writeString(obj.name);
-    writer.writeString(obj.type);
-    writer.writeBool(obj.isMandatory);
-    writer.writeStringList(obj.options);
-  }
-}
+import 'field_model.dart';
+import 'settings_screen.dart'; // Import the SettingsScreen
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -165,6 +114,7 @@ Future<void> saveAndDownloadFile(
     final filePath = '${directory.path}/$fileName';
     final file = File(filePath);
     await file.writeAsBytes(bytes);
+
     if (Platform.isAndroid) {
       var status = await Permission.storage.status;
       if (!status.isGranted) {
@@ -177,405 +127,55 @@ Future<void> saveAndDownloadFile(
   }
 }
 
-class SettingsScreen extends StatefulWidget {
-  @override
-  _SettingsScreenState createState() => _SettingsScreenState();
+// FieldModel and FieldModelAdapter remain unchanged
+class FieldModel {
+  String name;
+  String type;
+  bool isMandatory;
+  List<String> options;
+
+  FieldModel({
+    required this.name,
+    required this.type,
+    required this.isMandatory,
+    this.options = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'type': type,
+        'isMandatory': isMandatory,
+        'options': options,
+      };
+
+  factory FieldModel.fromJson(Map<String, dynamic> json) => FieldModel(
+        name: json['name'],
+        type: json['type'],
+        isMandatory: json['isMandatory'],
+        options: (json['options'] as List<dynamic>?)?.cast<String>() ?? [],
+      );
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
-  late Box<String> settingsBox;
-  List<FieldModel> fields = [];
-  final TextEditingController _nameController = TextEditingController();
-  String _selectedType = 'Text';
-  bool _isMandatory = false;
-  bool _showAddFieldForm = false;
-  final List<String> _fieldTypes = [
-    'Text',
-    'Number',
-    'Dropdown',
-    'Date',
-    'DateTime'
-  ];
-  int _dropdownOptionCount = 2;
-  List<TextEditingController> _optionControllers = [];
+class FieldModelAdapter extends TypeAdapter<FieldModel> {
+  @override
+  final int typeId = 0;
 
   @override
-  void initState() {
-    super.initState();
-    settingsBox = Hive.box<String>('settings');
-    _loadFields();
-  }
-
-  Future<void> _loadFields() async {
-    String? storedFields = settingsBox.get('fields');
-    if (storedFields != null && storedFields.isNotEmpty) {
-      try {
-        setState(() {
-          fields = (jsonDecode(storedFields) as List)
-              .map((e) => FieldModel.fromJson(e))
-              .toList();
-        });
-      } catch (e) {
-        _resetToDefaultFields();
-      }
-    }
-  }
-
-  void _resetToDefaultFields() {
-    setState(() {
-      fields = [
-        FieldModel(name: 'Name', type: 'Text', isMandatory: true),
-        FieldModel(name: 'Age', type: 'Number', isMandatory: true),
-        FieldModel(name: 'Number', type: 'Number', isMandatory: true),
-        FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
-        FieldModel(name: 'Address', type: 'Text', isMandatory: false),
-        FieldModel(
-          name: 'Gender',
-          type: 'Dropdown',
-          isMandatory: true,
-          options: ['Male', 'Female'],
-        ),
-      ];
-      _saveFields();
-    });
-  }
-
-  void _saveFields() {
-    settingsBox.put(
-        'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
-  }
-
-  void _addField() {
-    if (_nameController.text.isNotEmpty) {
-      List<String> options = [];
-      if (_selectedType == 'Dropdown') {
-        options = _optionControllers
-            .map((controller) => controller.text.trim())
-            .where((text) => text.isNotEmpty)
-            .toList();
-        if (options.isEmpty) {
-          options = ['Male', 'Female']; // Default meaningful options
-        }
-      }
-      setState(() {
-        fields.add(FieldModel(
-          name: _nameController.text,
-          type: _selectedType,
-          isMandatory: _isMandatory,
-          options: options,
-        ));
-        _nameController.clear();
-        _selectedType = 'Text';
-        _isMandatory = false;
-        _dropdownOptionCount = 2;
-        _optionControllers.clear();
-        _showAddFieldForm = false;
-        _saveFields();
-      });
-    }
-  }
-
-  void _removeField(int index) {
-    setState(() {
-      fields.removeAt(index);
-      _saveFields();
-    });
-  }
-
-  void _editField(int index) {
-    final field = fields[index];
-    _nameController.text = field.name;
-    _selectedType = field.type;
-    _isMandatory = field.isMandatory;
-    _dropdownOptionCount = field.options.length;
-    _optionControllers = field.options
-        .map((option) => TextEditingController(text: option))
-        .toList();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Edit Field'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Field Name',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedType,
-                decoration: InputDecoration(
-                  labelText: 'Field Type',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                items: _fieldTypes
-                    .map((type) =>
-                        DropdownMenuItem(value: type, child: Text(type)))
-                    .toList(),
-                onChanged: (value) => setState(() => _selectedType = value!),
-              ),
-              SizedBox(height: 12),
-              if (_selectedType == 'Dropdown') ...[
-                DropdownButtonFormField<int>(
-                  value: _dropdownOptionCount,
-                  decoration: InputDecoration(
-                    labelText: 'Number of Options',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  items: List.generate(10, (index) => index + 1)
-                      .map((count) =>
-                          DropdownMenuItem(value: count, child: Text('$count')))
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _dropdownOptionCount = value!;
-                      while (_optionControllers.length < _dropdownOptionCount) {
-                        _optionControllers.add(TextEditingController());
-                      }
-                      while (_optionControllers.length > _dropdownOptionCount) {
-                        _optionControllers.removeLast();
-                      }
-                    });
-                  },
-                ),
-                SizedBox(height: 12),
-                ...List.generate(
-                  _dropdownOptionCount,
-                  (index) => Padding(
-                    padding: EdgeInsets.only(bottom: 8.0),
-                    child: TextField(
-                      controller: _optionControllers[index],
-                      decoration: InputDecoration(
-                        labelText: 'Option ${index + 1}',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              SizedBox(height: 12),
-              CheckboxListTile(
-                title: Text('Mandatory'),
-                value: _isMandatory,
-                onChanged: (value) => setState(() => _isMandatory = value!),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (_nameController.text.isNotEmpty) {
-                List<String> options = _selectedType == 'Dropdown'
-                    ? _optionControllers
-                        .map((controller) => controller.text.trim())
-                        .where((text) => text.isNotEmpty)
-                        .toList()
-                    : [];
-                if (_selectedType == 'Dropdown' && options.isEmpty) {
-                  options = field.options.isNotEmpty
-                      ? field.options
-                      : ['Male', 'Female'];
-                }
-                setState(() {
-                  fields[index] = FieldModel(
-                    name: _nameController.text,
-                    type: _selectedType,
-                    isMandatory: _isMandatory,
-                    options: options,
-                  );
-                  _saveFields();
-                  _nameController.clear();
-                  _selectedType = 'Text';
-                  _isMandatory = false;
-                  _dropdownOptionCount = 2;
-                  _optionControllers.clear();
-                });
-                Navigator.pop(context);
-              }
-            },
-            child: Text('Save'),
-          ),
-        ],
-      ),
+  FieldModel read(BinaryReader reader) {
+    return FieldModel(
+      name: reader.readString(),
+      type: reader.readString(),
+      isMandatory: reader.readBool(),
+      options: reader.readStringList(),
     );
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Image.asset(
-              'assets/images/logo.png',
-              height: 40,
-            ),
-            SizedBox(width: 10),
-            Text('Settings'),
-          ],
-        ),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Manage Fields',
-                style: Theme.of(context).textTheme.titleLarge),
-            SizedBox(height: 16),
-            if (_showAddFieldForm) ...[
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Field Name',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedType,
-                decoration: InputDecoration(
-                  labelText: 'Field Type',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                items: _fieldTypes
-                    .map((type) =>
-                        DropdownMenuItem(value: type, child: Text(type)))
-                    .toList(),
-                onChanged: (value) => setState(() => _selectedType = value!),
-              ),
-              if (_selectedType == 'Dropdown') ...[
-                SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  value: _dropdownOptionCount,
-                  decoration: InputDecoration(
-                    labelText: 'Number of Options',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  items: List.generate(10, (index) => index + 1)
-                      .map((count) =>
-                          DropdownMenuItem(value: count, child: Text('$count')))
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _dropdownOptionCount = value!;
-                      while (_optionControllers.length < _dropdownOptionCount) {
-                        _optionControllers.add(TextEditingController());
-                      }
-                      while (_optionControllers.length > _dropdownOptionCount) {
-                        _optionControllers.removeLast();
-                      }
-                    });
-                  },
-                ),
-                SizedBox(height: 12),
-                ...List.generate(
-                  _dropdownOptionCount,
-                  (index) => Padding(
-                    padding: EdgeInsets.only(bottom: 8.0),
-                    child: TextField(
-                      controller: _optionControllers.length > index
-                          ? _optionControllers[index]
-                          : (_optionControllers.add(TextEditingController())
-                              as Null),
-                      decoration: InputDecoration(
-                        labelText: 'Option ${index + 1}',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              SizedBox(height: 12),
-              CheckboxListTile(
-                title: Text('Mandatory'),
-                value: _isMandatory,
-                onChanged: (value) => setState(() => _isMandatory = value!),
-              ),
-              SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  ElevatedButton.icon(
-                    icon: Icon(Icons.add),
-                    label: Text('Save Field'),
-                    onPressed: _addField,
-                  ),
-                  TextButton(
-                    onPressed: () => setState(() => _showAddFieldForm = false),
-                    child: Text('Cancel', style: TextStyle(color: Colors.red)),
-                  ),
-                ],
-              ),
-            ] else ...[
-              ElevatedButton.icon(
-                icon: Icon(Icons.add),
-                label: Text('Add Field'),
-                onPressed: () => setState(() => _showAddFieldForm = true),
-              ),
-            ],
-            SizedBox(height: 20),
-            Text('Current Fields',
-                style: Theme.of(context).textTheme.titleLarge),
-            Expanded(
-              child: ListView.builder(
-                itemCount: fields.length,
-                itemBuilder: (context, index) {
-                  final field = fields[index];
-                  final isProtectedField = field.name.toLowerCase() == 'name' ||
-                      field.name.toLowerCase() == 'amount';
-                  return Card(
-                    elevation: 2,
-                    margin: EdgeInsets.symmetric(vertical: 6),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    child: ListTile(
-                      title: Text('${field.name} (${field.type})'),
-                      subtitle: field.type == 'Dropdown'
-                          ? Text('Options: ${field.options.join(', ')}')
-                          : null,
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: Icon(Icons.edit, color: Colors.blue),
-                            onPressed: () => _editField(index),
-                          ),
-                          if (!isProtectedField)
-                            IconButton(
-                              icon: Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _removeField(index),
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  void write(BinaryWriter writer, FieldModel obj) {
+    writer.writeString(obj.name);
+    writer.writeString(obj.type);
+    writer.writeBool(obj.isMandatory);
+    writer.writeStringList(obj.options);
   }
 }
 
@@ -869,23 +469,14 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
   }
 
-  Future<Uint8List> _loadImageAsBytes() async {
-    final ByteData data = await rootBundle.load('assets/images/logo.png');
-    return data.buffer.asUint8List();
-  }
-
   Future<void> _generateAndDownloadBill(Map<String, String> data) async {
     try {
       final pdf = pw.Document();
-      final logoBytes = await _loadImageAsBytes();
-
       pdf.addPage(
         pw.Page(
           build: (pw.Context context) => pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Image(pw.MemoryImage(logoBytes), width: 100, height: 100),
-              pw.SizedBox(height: 20),
               pw.Text('Bill Receipt',
                   style: pw.TextStyle(
                       fontSize: 24, fontWeight: pw.FontWeight.bold)),
@@ -942,14 +533,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
   }
 
-  Future<String> _getBase64Logo() async {
-    final ByteData data = await rootBundle.load('assets/images/logo.png');
-    final Uint8List bytes = data.buffer.asUint8List();
-    return base64Encode(bytes);
-  }
-
-  Future<String> _generateHtmlInvoice(Map<String, String> data) async {
-    final String base64Logo = await _getBase64Logo();
+  String _generateHtmlInvoice(Map<String, String> data) {
     return '''
     <!DOCTYPE html>
     <html lang="en">
@@ -964,14 +548,10 @@ class _CollectionScreenState extends State<CollectionScreen> {
         .invoice-box table tr td:nth-child(2) { text-align: right; }
         .invoice-box .title { font-size: 24px; text-align: center; margin-bottom: 20px; }
         .invoice-box .header { background-color: #f7f7f7; font-weight: bold; }
-        .logo { text-align: center; margin-bottom: 20px; }
       </style>
     </head>
     <body>
       <div class="invoice-box">
-        <div class="logo">
-          <img src="data:image/png;base64,$base64Logo" alt="Logo" style="width: 100px; height: 100px;">
-        </div>
         <div class="title">Invoice Receipt</div>
         <table>
           <tr class="header">
@@ -1000,8 +580,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
     ''';
   }
 
-  void _showInvoiceInWebView(Map<String, String> data) async {
-    final htmlContent = await _generateHtmlInvoice(data);
+  void _showInvoiceInWebView(Map<String, String> data) {
+    final htmlContent = _generateHtmlInvoice(data);
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -1131,16 +711,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            Image.asset(
-              'assets/images/logo.png',
-              height: 40,
-            ),
-            SizedBox(width: 10),
-            Text('Collection'),
-          ],
-        ),
+        title: Text('Collection'),
         actions: [
           IconButton(
             icon: Icon(Icons.download, size: 28),
@@ -1216,18 +787,7 @@ class InvoiceWebViewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Image.asset(
-              'assets/images/logo.png',
-              height: 40,
-            ),
-            SizedBox(width: 10),
-            Text('Invoice Preview'),
-          ],
-        ),
-      ),
+      appBar: AppBar(title: Text('Invoice Preview')),
       body: InAppWebView(
         initialData: InAppWebViewInitialData(
             data: htmlContent, mimeType: 'text/html', encoding: 'utf-8'),
@@ -1414,28 +974,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Failed to export CSV: $e')));
     }
-
-    List<List<dynamic>> csvData = [
-      collectionInfo.first.keys.toList(),
-      ...collectionInfo.map((entry) => entry.values.toList()),
-    ];
-
-    String csv = const ListToCsvConverter().convert(csvData);
-    final fileName = 'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv';
-    final bytes = utf8.encode(csv);
-    
-    await saveAndDownloadFile(Uint8List.fromList(bytes), fileName, 'text/csv');
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Report exported successfully')),
-    );
-  } catch (e) {
-    print("Error in _exportToCsv: $e"); // Debug print
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Failed to export CSV: $e')),
-    );
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -1443,16 +982,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            Image.asset(
-              'assets/images/logo.png',
-              height: 40,
-            ),
-            SizedBox(width: 10),
-            Text('Reports'),
-          ],
-        ),
+        title: Text("Reports"),
         centerTitle: true,
         backgroundColor: Colors.blue,
         actions: [
