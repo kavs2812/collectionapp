@@ -165,7 +165,6 @@ Future<void> saveAndDownloadFile(
     final filePath = '${directory.path}/$fileName';
     final file = File(filePath);
     await file.writeAsBytes(bytes);
-
     if (Platform.isAndroid) {
       var status = await Permission.storage.status;
       if (!status.isGranted) {
@@ -1415,7 +1414,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Failed to export CSV: $e')));
     }
+
+    List<List<dynamic>> csvData = [
+      collectionInfo.first.keys.toList(),
+      ...collectionInfo.map((entry) => entry.values.toList()),
+    ];
+
+    String csv = const ListToCsvConverter().convert(csvData);
+    final fileName = 'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv';
+    final bytes = utf8.encode(csv);
+    
+    await saveAndDownloadFile(Uint8List.fromList(bytes), fileName, 'text/csv');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Report exported successfully')),
+    );
+  } catch (e) {
+    print("Error in _exportToCsv: $e"); // Debug print
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Failed to export CSV: $e')),
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {
