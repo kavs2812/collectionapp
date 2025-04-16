@@ -2,8 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'dart:convert';
 import 'field_model.dart';
+import 'package:collectionapp/l10n/app_localizations.dart'
+    show AppLocalizations;
 
 class SettingsScreen extends StatefulWidget {
+  final Function(Locale) changeLanguage;
+
+  const SettingsScreen({Key? key, required this.changeLanguage})
+      : super(key: key);
   @override
   _SettingsScreenState createState() => _SettingsScreenState();
 }
@@ -11,59 +17,117 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late Box<String> settingsBox;
   List<FieldModel> fields = [];
-  final TextEditingController _nameController = TextEditingController();
-  String _selectedType = 'Text';
-  bool _isMandatory = false;
-  bool _showAddFieldForm = false;
-  final List<String> _fieldTypes = [
-    'Text',
-    'Number',
-    'Dropdown',
-    'Date',
-    'DateTime'
+  String selectedInvoiceTemplate = 'Default'; // Default template
+
+  final List<String> fieldTypes = ['Text', 'Number', 'Dropdown'];
+  final List<String> fixedFields = ['Name', 'Amount'];
+  final List<String> invoiceTemplates = [
+    'Default',
+    'Temple Fund Collection',
+    'Treasurer Fund Collection'
   ];
-  int _dropdownOptionCount = 2;
-  List<TextEditingController> _optionControllers = [];
+
+  List<FieldModel> defaultFields = [];
+
+  String _localizeFieldType(String type) {
+    final loc = AppLocalizations.of(context)!;
+    switch (type.toLowerCase()) {
+      case 'text':
+        return loc.text;
+      case 'number':
+        return loc.number;
+      case 'dropdown':
+        return loc.dropdown;
+      default:
+        return type;
+    }
+  }
+
+  String _localizeFieldName(String name) {
+    final loc = AppLocalizations.of(context)!;
+    switch (name.toLowerCase()) {
+      case 'name':
+        return loc.name;
+      case 'amount':
+        return loc.amount;
+      case 'age':
+        return loc.age;
+      case 'number':
+        return loc.number;
+      case 'address':
+        return loc.address;
+      default:
+        return name;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    defaultFields = [
+      FieldModel(
+          name: AppLocalizations.of(context)!.name,
+          type: AppLocalizations.of(context)!.text,
+          isMandatory: true),
+      FieldModel(
+          name: AppLocalizations.of(context)!.amount,
+          type: AppLocalizations.of(context)!.number,
+          isMandatory: true),
+      FieldModel(
+          name: AppLocalizations.of(context)!.age,
+          type: AppLocalizations.of(context)!.number,
+          isMandatory: false),
+      FieldModel(
+          name: AppLocalizations.of(context)!.number,
+          type: AppLocalizations.of(context)!.number,
+          isMandatory: false),
+      FieldModel(
+          name: AppLocalizations.of(context)!.address,
+          type: AppLocalizations.of(context)!.text,
+          isMandatory: false),
+    ];
+    setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
-    settingsBox = Hive.box<String>('settings');
     _loadFields();
+    _loadInvoiceTemplate();
   }
 
   Future<void> _loadFields() async {
+    settingsBox = Hive.box<String>('settings');
     String? storedFields = settingsBox.get('fields');
-    if (storedFields != null && storedFields.isNotEmpty) {
+
+    if (storedFields == null || storedFields.isEmpty) {
+      _resetToDefaultFields();
+    } else {
       try {
+        List<dynamic> decodedFields = jsonDecode(storedFields);
         setState(() {
-          fields = (jsonDecode(storedFields) as List)
-              .map((e) => FieldModel.fromJson(e))
-              .toList();
+          fields = decodedFields.map((e) => FieldModel.fromJson(e)).toList();
         });
+        _ensureFixedFieldsPosition();
       } catch (e) {
         _resetToDefaultFields();
       }
     }
   }
 
+  Future<void> _loadInvoiceTemplate() async {
+    settingsBox = Hive.box<String>('settings');
+    String? storedTemplate = settingsBox.get('invoice_template');
+    setState(() {
+      selectedInvoiceTemplate = storedTemplate ?? 'Default';
+    });
+  }
+
   void _resetToDefaultFields() {
     setState(() {
-      fields = [
-        FieldModel(name: 'Name', type: 'Text', isMandatory: true),
-        FieldModel(name: 'Age', type: 'Number', isMandatory: true),
-        FieldModel(name: 'Number', type: 'Number', isMandatory: true),
-        FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
-        FieldModel(name: 'Address', type: 'Text', isMandatory: false),
-        FieldModel(
-          name: 'Gender',
-          type: 'Dropdown',
-          isMandatory: true,
-          options: ['Male', 'Female'],
-        ),
-      ];
-      _saveFields();
+      fields = defaultFields;
     });
+    _saveFields();
   }
 
   void _saveFields() {
@@ -71,321 +135,527 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'fields', jsonEncode(fields.map((e) => e.toJson()).toList()));
   }
 
-  void _addField() {
-    if (_nameController.text.isNotEmpty) {
-      List<String> options = [];
-      if (_selectedType == 'Dropdown') {
-        options = _optionControllers
-            .map((controller) => controller.text.trim())
-            .where((text) => text.isNotEmpty)
-            .toList();
-        if (options.isEmpty) {
-          options = ['Male', 'Female']; // Default meaningful options
-        }
-      }
-      setState(() {
-        fields.add(FieldModel(
-          name: _nameController.text,
-          type: _selectedType,
-          isMandatory: _isMandatory,
-          options: options,
-        ));
-        _nameController.clear();
-        _selectedType = 'Text';
-        _isMandatory = false;
-        _dropdownOptionCount = 2;
-        _optionControllers.clear();
-        _showAddFieldForm = false;
-        _saveFields();
-      });
-    }
+  void _saveInvoiceTemplate() {
+    settingsBox.put('invoice_template', selectedInvoiceTemplate);
   }
 
-  void _removeField(int index) {
+  void _ensureFixedFieldsPosition() {
+    setState(() {
+      fields.sort((a, b) {
+        if (a.name == "Name") return -1;
+        if (b.name == "Name") return 1;
+        if (a.name == "Amount") return -1;
+        if (b.name == "Amount") return 1;
+        return 0;
+      });
+    });
+  }
+
+  void _addNewField() {
+    _showFieldDialog(isEdit: false);
+  }
+
+  void _editField(int index) {
+    _showFieldDialog(isEdit: true, fieldIndex: index);
+  }
+
+  void _showFieldDialog({required bool isEdit, int? fieldIndex}) {
+    String title = isEdit
+        ? AppLocalizations.of(context)!.editField
+        : AppLocalizations.of(context)!.addField;
+
+    FieldModel? editingField =
+        (isEdit && fieldIndex != null && fieldIndex < fields.length)
+            ? fields[fieldIndex]
+            : null;
+
+    TextEditingController fieldNameController =
+        TextEditingController(text: editingField?.name ?? '');
+    String selectedType = editingField?.type ??
+        AppLocalizations.of(context)!.text; // Default to localized 'Text'
+    bool isMandatory = editingField?.isMandatory ?? false;
+    List<String> dropdownOptions = List.from(editingField?.options ?? []);
+    TextEditingController optionController = TextEditingController();
+    String? errorText;
+
+    List<String> localizedFieldTypes = [
+      AppLocalizations.of(context)!.text,
+      AppLocalizations.of(context)!.number,
+      AppLocalizations.of(context)!.dropdown
+    ];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: Text(title),
+              content: SizedBox(
+                width: 300,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: fieldNameController,
+                        maxLength: 30,
+                        decoration: InputDecoration(
+                          hintText:
+                              AppLocalizations.of(context)!.enterFieldName,
+                          errorText: errorText,
+                        ),
+                      ),
+                      SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        value: selectedType,
+                        items: localizedFieldTypes
+                            .map((type) => DropdownMenuItem(
+                                value: type, child: Text(type)))
+                            .toList(),
+                        onChanged: (value) {
+                          setStateDialog(() {
+                            selectedType = value!;
+                            if (selectedType !=
+                                AppLocalizations.of(context)!.dropdown) {
+                              dropdownOptions.clear();
+                            }
+                          });
+                        },
+                        decoration: InputDecoration(
+                            labelText: AppLocalizations.of(context)!.fieldType),
+                      ),
+                      SizedBox(height: 10),
+                      SwitchListTile(
+                        title: Text(AppLocalizations.of(context)!.mandatory),
+                        value: isMandatory,
+                        onChanged: (value) {
+                          setStateDialog(() {
+                            isMandatory = value;
+                          });
+                        },
+                      ),
+                      if (selectedType ==
+                          AppLocalizations.of(context)!.dropdown) ...[
+                        SizedBox(height: 10),
+                        Text(AppLocalizations.of(context)!.dropdownOptions,
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        SizedBox(height: 5),
+                        Container(
+                          constraints: BoxConstraints(maxHeight: 150),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: dropdownOptions.length,
+                            itemBuilder: (context, index) {
+                              return ListTile(
+                                title: Text(dropdownOptions[index]),
+                                trailing: IconButton(
+                                  icon: Icon(Icons.delete, color: Colors.red),
+                                  onPressed: () {
+                                    setStateDialog(() {
+                                      dropdownOptions.removeAt(index);
+                                    });
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: optionController,
+                                decoration: InputDecoration(
+                                    hintText: AppLocalizations.of(context)!
+                                        .enterOption),
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.add),
+                              onPressed: () {
+                                if (optionController.text.trim().isNotEmpty) {
+                                  setStateDialog(() {
+                                    dropdownOptions
+                                        .add(optionController.text.trim());
+                                    optionController.clear();
+                                  });
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(AppLocalizations.of(context)!.cancel),
+                ),
+                TextButton(
+                  onPressed: () {
+                    String fieldName = fieldNameController.text.trim();
+
+                    if (fieldName.isEmpty) {
+                      setStateDialog(() {
+                        errorText =
+                            AppLocalizations.of(context)!.fieldNameEmpty;
+                      });
+                      return;
+                    }
+
+                    bool isDuplicate = fields.any((field) =>
+                        field.name.toLowerCase() == fieldName.toLowerCase() &&
+                        (!isEdit || fields[fieldIndex!].name != fieldName));
+
+                    if (isDuplicate) {
+                      setStateDialog(() {
+                        errorText = AppLocalizations.of(context)!.fieldExists;
+                      });
+                      return;
+                    }
+
+                    if (selectedType ==
+                            AppLocalizations.of(context)!.dropdown &&
+                        dropdownOptions.isEmpty) {
+                      setStateDialog(() {
+                        errorText = AppLocalizations.of(context)!.dropdownEmpty;
+                      });
+                      return;
+                    }
+
+                    setState(() {
+                      if (isEdit &&
+                          fieldIndex != null &&
+                          fieldIndex < fields.length) {
+                        fields[fieldIndex] = FieldModel(
+                          name: fieldName,
+                          type: selectedType,
+                          isMandatory: isMandatory,
+                          options: selectedType ==
+                                  AppLocalizations.of(context)!.dropdown
+                              ? dropdownOptions
+                              : [],
+                        );
+                      } else {
+                        fields.add(FieldModel(
+                          name: fieldName,
+                          type: selectedType,
+                          isMandatory: isMandatory,
+                          options: selectedType ==
+                                  AppLocalizations.of(context)!.dropdown
+                              ? dropdownOptions
+                              : [],
+                        ));
+                      }
+                      _ensureFixedFieldsPosition();
+                      _saveFields();
+                    });
+                    Navigator.pop(context);
+                  },
+                  child: Text(isEdit
+                      ? AppLocalizations.of(context)!.update
+                      : AppLocalizations.of(context)!.add),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _deleteField(int index) {
+    if (index < 0 || index >= fields.length) return;
+
+    FieldModel field = fields[index];
+    if (fixedFields.contains(field.name)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!
+                .fieldCannotBeDeleted
+                .replaceFirst("{field}", field.name))),
+      );
+      return;
+    }
+
     setState(() {
       fields.removeAt(index);
       _saveFields();
     });
   }
 
-  void _editField(int index) {
-    final field = fields[index];
-    _nameController.text = field.name;
-    _selectedType = field.type;
-    _isMandatory = field.isMandatory;
-    _dropdownOptionCount = field.options.length;
-    _optionControllers = field.options
-        .map((option) => TextEditingController(text: option))
-        .toList();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Edit Field'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Field Name',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedType,
-                decoration: InputDecoration(
-                  labelText: 'Field Type',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                items: _fieldTypes
-                    .map((type) =>
-                        DropdownMenuItem(value: type, child: Text(type)))
-                    .toList(),
-                onChanged: (value) => setState(() => _selectedType = value!),
-              ),
-              SizedBox(height: 12),
-              if (_selectedType == 'Dropdown') ...[
-                DropdownButtonFormField<int>(
-                  value: _dropdownOptionCount,
-                  decoration: InputDecoration(
-                    labelText: 'Number of Options',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  items: List.generate(10, (index) => index + 1)
-                      .map((count) =>
-                          DropdownMenuItem(value: count, child: Text('$count')))
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _dropdownOptionCount = value!;
-                      while (_optionControllers.length < _dropdownOptionCount) {
-                        _optionControllers.add(TextEditingController());
-                      }
-                      while (_optionControllers.length > _dropdownOptionCount) {
-                        _optionControllers.removeLast();
-                      }
-                    });
-                  },
-                ),
-                SizedBox(height: 12),
-                ...List.generate(
-                  _dropdownOptionCount,
-                  (index) => Padding(
-                    padding: EdgeInsets.only(bottom: 8.0),
-                    child: TextField(
-                      controller: _optionControllers[index],
-                      decoration: InputDecoration(
-                        labelText: 'Option ${index + 1}',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              SizedBox(height: 12),
-              CheckboxListTile(
-                title: Text('Mandatory'),
-                value: _isMandatory,
-                onChanged: (value) => setState(() => _isMandatory = value!),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (_nameController.text.isNotEmpty) {
-                List<String> options = _selectedType == 'Dropdown'
-                    ? _optionControllers
-                        .map((controller) => controller.text.trim())
-                        .where((text) => text.isNotEmpty)
-                        .toList()
-                    : [];
-                if (_selectedType == 'Dropdown' && options.isEmpty) {
-                  options = field.options.isNotEmpty
-                      ? field.options
-                      : ['Male', 'Female'];
-                }
-                setState(() {
-                  fields[index] = FieldModel(
-                    name: _nameController.text,
-                    type: _selectedType,
-                    isMandatory: _isMandatory,
-                    options: options,
-                  );
-                  _saveFields();
-                  _nameController.clear();
-                  _selectedType = 'Text';
-                  _isMandatory = false;
-                  _dropdownOptionCount = 2;
-                  _optionControllers.clear();
-                });
-                Navigator.pop(context);
-              }
-            },
-            child: Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Settings')),
+      appBar: AppBar(
+        title: Text(AppLocalizations.of(context)!.settings),
+      ),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.all(12.0),
+        child: ListView(
           children: [
-            Text('Manage Fields',
-                style: Theme.of(context).textTheme.titleLarge),
-            SizedBox(height: 16),
-            if (_showAddFieldForm) ...[
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Field Name',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
+            // 🌐 Choose Language Block
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: const [
+                  BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 2,
+                      offset: Offset(0, 2)),
+                ],
               ),
-              SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedType,
-                decoration: InputDecoration(
-                  labelText: 'Field Type',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                items: _fieldTypes
-                    .map((type) =>
-                        DropdownMenuItem(value: type, child: Text(type)))
-                    .toList(),
-                onChanged: (value) => setState(() => _selectedType = value!),
-              ),
-              if (_selectedType == 'Dropdown') ...[
-                SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  value: _dropdownOptionCount,
-                  decoration: InputDecoration(
-                    labelText: 'Number of Options',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  items: List.generate(10, (index) => index + 1)
-                      .map((count) =>
-                          DropdownMenuItem(value: count, child: Text('$count')))
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _dropdownOptionCount = value!;
-                      while (_optionControllers.length < _dropdownOptionCount) {
-                        _optionControllers.add(TextEditingController());
-                      }
-                      while (_optionControllers.length > _dropdownOptionCount) {
-                        _optionControllers.removeLast();
-                      }
-                    });
-                  },
-                ),
-                SizedBox(height: 12),
-                ...List.generate(
-                  _dropdownOptionCount,
-                  (index) => Padding(
-                    padding: EdgeInsets.only(bottom: 8.0),
-                    child: TextField(
-                      controller: _optionControllers.length > index
-                          ? _optionControllers[index]
-                          : (_optionControllers.add(TextEditingController())
-                              as Null),
-                      decoration: InputDecoration(
-                        labelText: 'Option ${index + 1}',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    AppLocalizations.of(context)!.choose_language,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
                     ),
                   ),
-                ),
-              ],
-              SizedBox(height: 12),
-              CheckboxListTile(
-                title: Text('Mandatory'),
-                value: _isMandatory,
-                onChanged: (value) => setState(() => _isMandatory = value!),
-              ),
-              SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  ElevatedButton.icon(
-                    icon: Icon(Icons.add),
-                    label: Text('Save Field'),
-                    onPressed: _addField,
-                  ),
-                  TextButton(
-                    onPressed: () => setState(() => _showAddFieldForm = false),
-                    child: Text('Cancel', style: TextStyle(color: Colors.red)),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.black),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<Locale>(
+                        value: Localizations.localeOf(context),
+                        isExpanded: true,
+                        icon: const Icon(Icons.arrow_drop_down),
+                        style:
+                            const TextStyle(fontSize: 16, color: Colors.black),
+                        dropdownColor: Colors.white,
+                        items: const [
+                          DropdownMenuItem(
+                            value: Locale('en'),
+                            child: Text('English'),
+                          ),
+                          DropdownMenuItem(
+                            value: Locale('ta'),
+                            child: Text('தமிழ்'),
+                          ),
+                        ],
+                        onChanged: (Locale? newLocale) {
+                          if (newLocale != null) {
+                            widget.changeLanguage(newLocale);
+                          }
+                        },
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ] else ...[
-              ElevatedButton.icon(
-                icon: Icon(Icons.add),
-                label: Text('Add Field'),
-                onPressed: () => setState(() => _showAddFieldForm = true),
+            ),
+            const SizedBox(height: 20),
+
+            // 📜 Invoice Template Selection Block
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: const [
+                  BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 2,
+                      offset: Offset(0, 2)),
+                ],
               ),
-            ],
-            SizedBox(height: 20),
-            Text('Current Fields',
-                style: Theme.of(context).textTheme.titleLarge),
-            Expanded(
-              child: ListView.builder(
-                itemCount: fields.length,
-                itemBuilder: (context, index) {
-                  final field = fields[index];
-                  final isProtectedField = field.name.toLowerCase() == 'name' ||
-                      field.name.toLowerCase() == 'amount';
-                  return Card(
-                    elevation: 2,
-                    margin: EdgeInsets.symmetric(vertical: 6),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    child: ListTile(
-                      title: Text('${field.name} (${field.type})'),
-                      subtitle: field.type == 'Dropdown'
-                          ? Text('Options: ${field.options.join(', ')}')
-                          : null,
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Select Invoice Template',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.black),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: selectedInvoiceTemplate,
+                        isExpanded: true,
+                        icon: const Icon(Icons.arrow_drop_down),
+                        style:
+                            const TextStyle(fontSize: 16, color: Colors.black),
+                        dropdownColor: Colors.white,
+                        items: invoiceTemplates
+                            .map((template) => DropdownMenuItem(
+                                  value: template,
+                                  child: Text(template),
+                                ))
+                            .toList(),
+                        onChanged: (String? newTemplate) {
+                          if (newTemplate != null) {
+                            setState(() {
+                              selectedInvoiceTemplate = newTemplate;
+                              _saveInvoiceTemplate();
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // 🌾 Manage Fields Block
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: const [
+                  BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 2,
+                      offset: Offset(0, 2)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        AppLocalizations.of(context)!.manageFields,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
+                      ),
+                      DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          icon: const Icon(Icons.more_vert),
+                          isDense: true,
+                          items: [
+                            DropdownMenuItem(
+                              value: 'add',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.add_circle_outline,
+                                      color: Colors.green, size: 20),
+                                  SizedBox(width: 6),
+                                  Text(AppLocalizations.of(context)!.addField),
+                                ],
+                              ),
+                            ),
+                          ],
+                          onChanged: (String? value) {
+                            switch (value) {
+                              case 'add':
+                                _showFieldDialog(isEdit: false);
+                                break;
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // 🧾 List of Fields Block
+            Text(
+              AppLocalizations.of(context)!.currentFields,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: fields.length,
+              itemBuilder: (context, index) {
+                final field = fields[index];
+                return Container(
+                  margin: const EdgeInsets.symmetric(vertical: 3),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: const [
+                      BoxShadow(
+                          color: Colors.black12,
+                          blurRadius: 1.5,
+                          offset: Offset(0, 1)),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${_localizeFieldName(field.name)} (${_localizeFieldType(field.type)})',
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            if (field.isMandatory)
+                              Text(
+                                AppLocalizations.of(context)!.mandatory,
+                                style: const TextStyle(
+                                    color: Colors.red, fontSize: 12),
+                              ),
+                            if (_localizeFieldType(field.type) ==
+                                    AppLocalizations.of(context)!.dropdown &&
+                                field.options.isNotEmpty)
+                              Text(
+                                '${AppLocalizations.of(context)!.dropdownOptions}: ${field.options.join(', ')}',
+                                style: TextStyle(
+                                    fontSize: 13, color: Colors.grey[800]),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Row(
                         children: [
+                          // Edit button for all fields
                           IconButton(
-                            icon: Icon(Icons.edit, color: Colors.blue),
+                            icon: const Icon(Icons.edit,
+                                color: Colors.orange, size: 20),
                             onPressed: () => _editField(index),
                           ),
-                          if (!isProtectedField)
+                          // Delete button only for non-fixed fields
+                          if (!fixedFields.contains(field.name))
                             IconButton(
-                              icon: Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _removeField(index),
+                              icon: const Icon(Icons.delete,
+                                  color: Colors.red, size: 20),
+                              onPressed: () => _deleteField(index),
                             ),
                         ],
                       ),
-                    ),
-                  );
-                },
-              ),
+                    ],
+                  ),
+                );
+              },
             ),
           ],
         ),

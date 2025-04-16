@@ -1,8 +1,10 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart'; // Correct import for kIsWeb
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
+import 'field_model.dart';
+import 'settings_screen.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -13,10 +15,11 @@ import 'package:csv/csv.dart';
 import 'package:universal_html/html.dart' as html;
 import 'dart:typed_data';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:collectionapp/l10n/app_localizations.dart'
+    show AppLocalizations;
 import 'package:share_plus/share_plus.dart';
-import 'package:flutter/services.dart' show rootBundle; // For loading assets
-import 'field_model.dart';
-import 'settings_screen.dart'; // Import the SettingsScreen
+import 'package:flutter/services.dart' show rootBundle;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,12 +37,23 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   int _selectedIndex = 1;
+  Locale _appLocale = Locale('en');
 
-  final List<Widget> _screens = [
-    SettingsScreen(),
-    CollectionScreen(),
-    ReportsScreen(),
-  ];
+  final List<Widget> _screens = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _screens.add(SettingsScreen(changeLanguage: _changeLanguage));
+    _screens.add(CollectionScreen());
+    _screens.add(ReportsScreen());
+  }
+
+  void _changeLanguage(Locale locale) {
+    setState(() {
+      _appLocale = locale;
+    });
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -51,138 +65,72 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      title: 'Collection App',
       theme: ThemeData(
-        primaryColor: Colors.blueAccent,
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
         scaffoldBackgroundColor: Colors.grey[100],
         appBarTheme: AppBarTheme(
-          backgroundColor: Colors.blueAccent,
+          elevation: 2,
+          backgroundColor: Colors.blue,
           foregroundColor: Colors.white,
-          elevation: 4,
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blueAccent,
-            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            padding: EdgeInsets.symmetric(vertical: 12, horizontal: 20),
           ),
         ),
-        textTheme: TextTheme(
-          bodyMedium: TextStyle(fontSize: 16, color: Colors.black87),
-          titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
       ),
-      darkTheme: ThemeData.dark().copyWith(
-        primaryColor: Colors.blueAccent,
-        scaffoldBackgroundColor: Colors.grey[900],
-      ),
+      darkTheme: ThemeData.dark(),
       themeMode: ThemeMode.system,
-      home: Scaffold(
-        body: _screens[_selectedIndex],
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _selectedIndex,
-          onTap: _onItemTapped,
-          selectedItemColor: Colors.blueAccent,
-          unselectedItemColor: Colors.grey,
-          backgroundColor: Colors.white,
-          elevation: 8,
-          items: [
-            BottomNavigationBarItem(
-                icon: Icon(Icons.settings), label: 'Settings'),
-            BottomNavigationBarItem(
-                icon: Icon(Icons.list), label: 'Collection'),
-            BottomNavigationBarItem(
-                icon: Icon(Icons.insert_chart), label: 'Report'),
-          ],
-        ),
-      ),
+      supportedLocales: const [
+        Locale('en'),
+        Locale('ta'),
+      ],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      locale: _appLocale,
+      localeResolutionCallback: (locale, supportedLocales) {
+        for (var supportedLocale in supportedLocales) {
+          if (supportedLocale.languageCode == locale?.languageCode) {
+            return supportedLocale;
+          }
+        }
+        return supportedLocales.first;
+      },
+      home: Builder(builder: (context) {
+        final localizations = AppLocalizations.of(context);
+
+        return Scaffold(
+          body: _screens[_selectedIndex],
+          bottomNavigationBar: BottomNavigationBar(
+            currentIndex: _selectedIndex,
+            onTap: _onItemTapped,
+            selectedItemColor: Colors.blue,
+            unselectedItemColor: Colors.grey,
+            backgroundColor: Colors.white,
+            elevation: 8,
+            items: [
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.settings),
+                  label: localizations?.settings ?? 'Settings'),
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.list),
+                  label: localizations?.collection ?? 'Collection'),
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.insert_chart),
+                  label: localizations?.reports ?? 'Reports'),
+            ],
+          ),
+        );
+      }),
     );
-  }
-}
-
-Future<void> saveAndDownloadFile(
-    Uint8List bytes, String fileName, String mimeType) async {
-  if (kIsWeb) {
-    final blob = html.Blob([bytes], mimeType);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute('download', fileName)
-      ..click();
-    html.Url.revokeObjectUrl(url);
-  } else if (Platform.isAndroid || Platform.isIOS) {
-    final directory = await getApplicationDocumentsDirectory();
-    final filePath = '${directory.path}/$fileName';
-    final file = File(filePath);
-    await file.writeAsBytes(bytes);
-
-    if (Platform.isAndroid) {
-      var status = await Permission.storage.status;
-      if (!status.isGranted) {
-        await Permission.storage.request();
-      }
-    }
-
-    await Share.shareXFiles([XFile(filePath, mimeType: mimeType)],
-        subject: 'Sharing $fileName');
-  }
-}
-
-// Helper method to load image from assets
-Future<Uint8List> loadImageFromAssets(String path) async {
-  final byteData = await rootBundle.load(path);
-  return byteData.buffer.asUint8List();
-}
-
-// FieldModel and FieldModelAdapter remain unchanged
-class FieldModel {
-  String name;
-  String type;
-  bool isMandatory;
-  List<String> options;
-
-  FieldModel({
-    required this.name,
-    required this.type,
-    required this.isMandatory,
-    this.options = const [],
-  });
-
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'type': type,
-        'isMandatory': isMandatory,
-        'options': options,
-      };
-
-  factory FieldModel.fromJson(Map<String, dynamic> json) => FieldModel(
-        name: json['name'],
-        type: json['type'],
-        isMandatory: json['isMandatory'],
-        options: (json['options'] as List<dynamic>?)?.cast<String>() ?? [],
-      );
-}
-
-class FieldModelAdapter extends TypeAdapter<FieldModel> {
-  @override
-  final int typeId = 0;
-
-  @override
-  FieldModel read(BinaryReader reader) {
-    return FieldModel(
-      name: reader.readString(),
-      type: reader.readString(),
-      isMandatory: reader.readBool(),
-      options: reader.readStringList(),
-    );
-  }
-
-  @override
-  void write(BinaryWriter writer, FieldModel obj) {
-    writer.writeString(obj.name);
-    writer.writeString(obj.type);
-    writer.writeBool(obj.isMandatory);
-    writer.writeStringList(obj.options);
   }
 }
 
@@ -192,7 +140,7 @@ class CollectionScreen extends StatefulWidget {
 }
 
 class _CollectionScreenState extends State<CollectionScreen> {
-  final _formKey = GlobalKey<FormState>();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   late Box<String> settingsBox;
   late Box<List> dataBox;
   List<FieldModel> fields = [];
@@ -205,13 +153,26 @@ class _CollectionScreenState extends State<CollectionScreen> {
     FieldModel(name: 'Number', type: 'Number', isMandatory: true),
     FieldModel(name: 'Amount', type: 'Number', isMandatory: false),
     FieldModel(name: 'Address', type: 'Text', isMandatory: false),
-    FieldModel(
-      name: 'Gender',
-      type: 'Dropdown',
-      isMandatory: true,
-      options: ['Male', 'Female'],
-    ),
   ];
+
+  String getLocalizedFieldName(BuildContext context, String fieldName) {
+    final loc = AppLocalizations.of(context)!;
+
+    switch (fieldName.toLowerCase()) {
+      case 'name':
+        return loc.name;
+      case 'age':
+        return loc.age;
+      case 'number':
+        return loc.number;
+      case 'amount':
+        return loc.amount;
+      case 'address':
+        return loc.address;
+      default:
+        return fieldName;
+    }
+  }
 
   @override
   void initState() {
@@ -225,6 +186,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
     dataBox = Hive.box<List>('collection_data');
 
     String? storedFields = settingsBox.get('fields');
+
     if (storedFields != null && storedFields.isNotEmpty) {
       try {
         setState(() {
@@ -238,14 +200,15 @@ class _CollectionScreenState extends State<CollectionScreen> {
     } else {
       _resetToDefaultFields();
     }
+
     _initializeControllers();
   }
 
   void _resetToDefaultFields() {
     setState(() {
       fields = defaultFields;
-      _saveFields();
     });
+    _saveFields();
   }
 
   void _saveFields() {
@@ -260,7 +223,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   void _loadSavedData() {
+    dataBox = Hive.box<List>('collection_data');
     List<dynamic>? storedData = dataBox.get('data');
+
     if (storedData != null) {
       setState(() {
         savedData = storedData.cast<Map<String, String>>();
@@ -274,197 +239,192 @@ class _CollectionScreenState extends State<CollectionScreen> {
     });
   }
 
-  void _deleteData(int index) {
-    showDialog(
+  Future<void> _pickDate(BuildContext context, FieldModel field) async {
+    DateTime? pickedDate = await showDatePicker(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Confirm Delete'),
-        content: Text('Are you sure you want to delete this entry?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                savedData.removeAt(index);
-                dataBox.put('data', savedData);
-              });
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Entry deleted successfully')));
-            },
-            child: Text('Delete'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          ),
-        ],
-      ),
+      initialDate: DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100),
     );
+
+    if (pickedDate != null) {
+      String formattedDate = DateFormat('yyyy-MM-dd').format(pickedDate);
+      setState(() {
+        _controllers[field.name]!.text = formattedDate;
+      });
+    }
+  }
+
+  Future<void> _pickDateTime(BuildContext context, FieldModel field) async {
+    DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100),
+    );
+
+    if (pickedDate != null) {
+      TimeOfDay? pickedTime = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.now(),
+      );
+
+      if (pickedTime != null) {
+        DateTime combinedDateTime = DateTime(
+          pickedDate.year,
+          pickedDate.month,
+          pickedDate.day,
+          pickedTime.hour,
+          pickedTime.minute,
+        );
+        String formattedDateTime =
+            DateFormat('yyyy-MM-dd HH:mm').format(combinedDateTime);
+        setState(() {
+          _controllers[field.name]!.text = formattedDateTime;
+        });
+      }
+    }
   }
 
   Widget _buildField(FieldModel field) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
-                spreadRadius: 2,
-                blurRadius: 4,
-                offset: Offset(0, 2)),
-          ],
-        ),
-        child: _buildFieldContent(field),
-      ),
-    );
-  }
-
-  Widget _buildFieldContent(FieldModel field) {
-    IconData prefixIcon;
-    if (field.type == 'Text') {
-      prefixIcon = Icons.text_fields; // "T" like icon
-    } else if (field.type == 'Number') {
-      prefixIcon = Icons.numbers; // "#" like icon
-    } else if (field.type == 'Dropdown') {
-      prefixIcon = Icons.arrow_drop_down;
-    } else if (field.type == 'Date' || field.type == 'DateTime') {
-      prefixIcon = Icons.calendar_today;
-    } else {
-      prefixIcon = Icons.text_fields;
-    }
-
     if (field.type == 'Dropdown') {
-      return DropdownButtonFormField<String>(
-        value: _controllers[field.name]!.text.isNotEmpty &&
-                field.options.contains(_controllers[field.name]!.text)
-            ? _controllers[field.name]!.text
-            : null,
-        decoration: InputDecoration(
-          prefixIcon: Icon(prefixIcon, color: Colors.blueAccent),
-          labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        ),
-        items: field.options
-            .map((option) =>
-                DropdownMenuItem(value: option, child: Text(option)))
-            .toList(),
-        onChanged: (value) {
-          setState(() {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: DropdownButtonFormField<String>(
+          value: _controllers[field.name]!.text.isNotEmpty
+              ? _controllers[field.name]!.text
+              : null,
+          decoration: InputDecoration(
+            prefixIcon: Icon(Icons.arrow_drop_down, color: Colors.blue),
+            labelText:
+                '${getLocalizedFieldName(context, field.name)} ${field.isMandatory ? '*' : ''}',
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+          ),
+          items: field.options
+              .map((option) =>
+                  DropdownMenuItem(value: option, child: Text(option)))
+              .toList(),
+          onChanged: (value) {
             if (value != null) {
               _controllers[field.name]!.text = value;
             }
-          });
+          },
+          validator: (value) {
+            if (field.isMandatory && (value == null || value.isEmpty)) {
+              return '${getLocalizedFieldName(context, field.name)} is mandatory';
+            }
+            return null;
+          },
+        ),
+      );
+    } else if (field.type == 'Date') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: TextFormField(
+          controller: _controllers[field.name],
+          readOnly: true,
+          decoration: InputDecoration(
+            prefixIcon: Icon(Icons.calendar_today, color: Colors.blue),
+            labelText:
+                '${getLocalizedFieldName(context, field.name)} ${field.isMandatory ? '*' : ''}',
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+          ),
+          onTap: () => _pickDate(context, field),
+          validator: (value) {
+            if (field.isMandatory && (value == null || value.isEmpty)) {
+              return '${getLocalizedFieldName(context, field.name)} is mandatory';
+            }
+            return null;
+          },
+        ),
+      );
+    } else if (field.type == 'DateTime') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: TextFormField(
+          controller: _controllers[field.name],
+          readOnly: true,
+          decoration: InputDecoration(
+            prefixIcon: Icon(Icons.date_range, color: Colors.blue),
+            labelText:
+                '${getLocalizedFieldName(context, field.name)} ${field.isMandatory ? '*' : ''}',
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+          ),
+          onTap: () => _pickDateTime(context, field),
+          validator: (value) {
+            if (field.isMandatory && (value == null || value.isEmpty)) {
+              return '${getLocalizedFieldName(context, field.name)} is mandatory';
+            }
+            return null;
+          },
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: TextFormField(
+        controller: _controllers[field.name],
+        decoration: InputDecoration(
+          prefixIcon: Icon(
+              field.type == 'Number' ? Icons.numbers : Icons.text_fields,
+              color: Colors.blue),
+          labelText:
+              '${getLocalizedFieldName(context, field.name)} ${field.isMandatory ? '*' : ''}',
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey[300]!),
+          ),
+        ),
+        keyboardType:
+            field.type == 'Number' ? TextInputType.number : TextInputType.text,
+        validator: (value) {
+          if (field.isMandatory && (value == null || value.isEmpty)) {
+            return '${getLocalizedFieldName(context, field.name)} is mandatory';
+          }
+          if (field.type == 'Number' &&
+              !RegExp(r'^\d+$').hasMatch(value ?? '')) {
+            return 'Only numbers allowed';
+          }
+          if (field.name.toLowerCase() == 'number' && value!.length != 10) {
+            return 'Mobile number must be exactly 10 digits';
+          }
+          return null;
         },
-        validator: (value) =>
-            field.isMandatory && (value == null || value.isEmpty)
-                ? '${field.name} is mandatory'
-                : null,
-      );
-    }
-
-    if (field.type == 'Date') {
-      return TextFormField(
-        controller: _controllers[field.name],
-        decoration: InputDecoration(
-          prefixIcon: Icon(prefixIcon, color: Colors.blueAccent),
-          labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          suffixIcon: IconButton(
-            icon: Icon(Icons.date_range, color: Colors.blueAccent),
-            onPressed: () async {
-              DateTime? pickedDate = await showDatePicker(
-                context: context,
-                initialDate: DateTime.now(),
-                firstDate: DateTime(2000),
-                lastDate: DateTime(2100),
-              );
-              if (pickedDate != null) {
-                setState(() {
-                  _controllers[field.name]!.text =
-                      DateFormat('yyyy-MM-dd').format(pickedDate);
-                });
-              }
-            },
-          ),
-        ),
-        readOnly: true,
-        validator: (value) =>
-            field.isMandatory && (value == null || value.isEmpty)
-                ? '${field.name} is mandatory'
-                : null,
-      );
-    }
-
-    if (field.type == 'DateTime') {
-      return TextFormField(
-        controller: _controllers[field.name],
-        decoration: InputDecoration(
-          prefixIcon: Icon(prefixIcon, color: Colors.blueAccent),
-          labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          suffixIcon: IconButton(
-            icon: Icon(Icons.access_time, color: Colors.blueAccent),
-            onPressed: () async {
-              DateTime? pickedDate = await showDatePicker(
-                context: context,
-                initialDate: DateTime.now(),
-                firstDate: DateTime(2000),
-                lastDate: DateTime(2100),
-              );
-              if (pickedDate != null) {
-                TimeOfDay? pickedTime = await showTimePicker(
-                  context: context,
-                  initialTime: TimeOfDay.now(),
-                );
-                if (pickedTime != null) {
-                  final dateTime = DateTime(
-                    pickedDate.year,
-                    pickedDate.month,
-                    pickedDate.day,
-                    pickedTime.hour,
-                    pickedTime.minute,
-                  );
-                  setState(() {
-                    _controllers[field.name]!.text =
-                        DateFormat('yyyy-MM-dd HH:mm').format(dateTime);
-                  });
-                }
-              }
-            },
-          ),
-        ),
-        readOnly: true,
-        validator: (value) =>
-            field.isMandatory && (value == null || value.isEmpty)
-                ? '${field.name} is mandatory'
-                : null,
-      );
-    }
-
-    return TextFormField(
-      controller: _controllers[field.name],
-      decoration: InputDecoration(
-        prefixIcon: Icon(prefixIcon, color: Colors.blueAccent),
-        labelText: '${field.name} ${field.isMandatory ? '*' : ''}',
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
-      keyboardType:
-          field.type == 'Number' ? TextInputType.number : TextInputType.text,
-      validator: (value) {
-        if (field.isMandatory && (value == null || value.isEmpty))
-          return '${field.name} is mandatory';
-        if (field.type == 'Number' && !RegExp(r'^\d+$').hasMatch(value ?? ''))
-          return 'Only numbers allowed';
-        if (field.name.toLowerCase() == 'number' && value!.length != 10)
-          return 'Mobile number must be 10 digits';
-        return null;
-      },
     );
   }
 
@@ -474,7 +434,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       for (var field in fields) {
         newData[field.name] = _controllers[field.name]!.text;
       }
-      newData['date'] =
+      newData['Date'] =
           DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
       setState(() {
@@ -483,141 +443,536 @@ class _CollectionScreenState extends State<CollectionScreen> {
       });
 
       dataBox.put('data', savedData);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Data Saved Successfully')));
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.save)),
+      );
     }
   }
 
   Future<void> _generateAndDownloadBill(Map<String, String> data) async {
     try {
       final pdf = pw.Document();
+      final localizations = AppLocalizations.of(context)!;
 
-      // Load the logo image
-      final Uint8List logoImage =
-          await loadImageFromAssets('assets/images/logo.png');
+      Uint8List? logoBytes;
+      try {
+        final byteData = await rootBundle.load('assets/images/logo.png');
+        logoBytes = byteData.buffer.asUint8List();
+      } catch (e) {
+        print("Error loading logo: $e");
+      }
 
       pdf.addPage(
         pw.Page(
           build: (pw.Context context) => pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
-              // Add the logo at the top
-              pw.Image(
-                pw.MemoryImage(logoImage),
-                width: 100,
-                height: 100,
+              if (logoBytes != null)
+                pw.Center(
+                  child: pw.Image(pw.MemoryImage(logoBytes),
+                      width: 100, height: 100),
+                )
+              else
+                pw.Center(
+                  child: pw.Text(
+                    'Logo Missing',
+                    style: pw.TextStyle(color: PdfColor(1, 0, 0), fontSize: 16),
+                  ),
+                ),
+              pw.SizedBox(height: 10),
+              pw.Text(
+                localizations.billReceipt,
+                style:
+                    pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
               ),
               pw.SizedBox(height: 20),
-              pw.Text('Bill Receipt',
-                  style: pw.TextStyle(
-                      fontSize: 24, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 20),
-              pw.Text('Date: ${data['date']}',
-                  style: pw.TextStyle(fontSize: 16)),
-              pw.SizedBox(height: 20),
               pw.Table(
-                border: pw.TableBorder.all(),
+                border: pw.TableBorder.all(
+                    width: 1, color: PdfColor.fromHex('#000000')),
+                defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
                 children: [
+                  for (var field in fields)
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Text(field.name,
+                              style: pw.TextStyle(fontSize: 14)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(8),
+                          child: pw.Align(
+                            alignment: pw.Alignment.centerRight,
+                            child: pw.Text(data[field.name] ?? 'N/A',
+                                style: pw.TextStyle(fontSize: 14)),
+                          ),
+                        ),
+                      ],
+                    ),
                   pw.TableRow(
                     children: [
                       pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Field',
-                              style: pw.TextStyle(
-                                  fontWeight: pw.FontWeight.bold))),
+                        padding: const pw.EdgeInsets.all(8),
+                        child:
+                            pw.Text('Date', style: pw.TextStyle(fontSize: 14)),
+                      ),
                       pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Value',
-                              style: pw.TextStyle(
-                                  fontWeight: pw.FontWeight.bold))),
+                        padding: const pw.EdgeInsets.all(8),
+                        child: pw.Align(
+                          alignment: pw.Alignment.centerRight,
+                          child: pw.Text(
+                              data['Date'] ??
+                                  DateFormat('yyyy-MM-dd HH:mm:ss')
+                                      .format(DateTime.now()),
+                              style: pw.TextStyle(fontSize: 14)),
+                        ),
+                      ),
                     ],
                   ),
-                  ...data.entries
-                      .map((entry) => pw.TableRow(
-                            children: [
-                              pw.Padding(
-                                  padding: const pw.EdgeInsets.all(8),
-                                  child: pw.Text(entry.key)),
-                              pw.Padding(
-                                  padding: const pw.EdgeInsets.all(8),
-                                  child: pw.Text(entry.value)),
-                            ],
-                          ))
-                      .toList(),
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(8),
+                        child: pw.Text('Total Amount',
+                            style: pw.TextStyle(
+                                fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(8),
+                        child: pw.Align(
+                          alignment: pw.Alignment.centerRight,
+                          child: pw.Text(data['Amount'] ?? '0',
+                              style: pw.TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: pw.FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
+              pw.SizedBox(height: 20),
+              pw.Text('Thank you for your contribution!',
+                  style: pw.TextStyle(fontSize: 12),
+                  textAlign: pw.TextAlign.center),
             ],
           ),
         ),
       );
 
       final pdfBytes = await pdf.save();
-      final fileName =
-          'bill_${data['date']?.replaceAll(':', '-') ?? 'unknown'}_${DateTime.now().millisecondsSinceEpoch}.pdf';
 
-      await saveAndDownloadFile(pdfBytes, fileName, 'application/pdf');
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Bill generated successfully')));
+      if (kIsWeb) {
+        // Corrected to use kIsWeb without prefix
+        final blob = html.Blob([pdfBytes], 'application/pdf');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute('download',
+              'bill_${data['Date']?.replaceAll(':', '-') ?? 'unknown'}_${DateTime.now().millisecondsSinceEpoch}.pdf')
+          ..click();
+        html.Url.revokeObjectUrl(url);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text(AppLocalizations.of(context)!.bill_downloaded_browser),
+          ),
+        );
+      } else {
+        if (await Permission.storage.request().isDenied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  AppLocalizations.of(context)!.storage_permission_required),
+            ),
+          );
+          return;
+        }
+
+        Directory? directory;
+        try {
+          directory = await getDownloadsDirectory();
+          if (directory == null) {
+            throw Exception(
+                AppLocalizations.of(context)!.downloadsDirectoryNotAvailable);
+          }
+        } catch (e) {
+          directory = await getApplicationDocumentsDirectory();
+        }
+
+        final fileName =
+            'bill_${data['Date']?.replaceAll(':', '-') ?? 'unknown'}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+        final file = File('${directory.path}/$fileName');
+
+        await directory.create(recursive: true);
+        await file.writeAsBytes(pdfBytes);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!
+                .bill_downloaded
+                .replaceFirst('{path}', file.path)),
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to generate bill: $e')));
+      print("Error generating PDF: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!
+              .failed_download_bill
+              .replaceFirst('{error}', '$e')),
+        ),
+      );
     }
   }
 
   Future<String> _generateHtmlInvoice(Map<String, String> data) async {
-    // Load the logo image
-    final Uint8List logoImage =
-        await loadImageFromAssets('assets/images/logo.png');
-    final String base64Image = base64Encode(logoImage);
+    final byteData = await rootBundle.load('assets/images/logo.png');
+    final base64Image = base64Encode(byteData.buffer.asUint8List());
+    settingsBox = Hive.box<String>('settings');
+    String selectedTemplate = settingsBox.get('invoice_template') ?? 'Default';
 
-    return '''
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <title>Invoice</title>
-      <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .invoice-box { max-width: 800px; margin: auto; padding: 30px; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0, 0, 0, 0.15); }
-        .invoice-box table { width: 100%; line-height: 1.5; border-collapse: collapse; }
-        .invoice-box table td { padding: 5px; vertical-align: top; }
-        .invoice-box table tr td:nth-child(2) { text-align: right; }
-        .invoice-box .title { font-size: 24px; text-align: center; margin-bottom: 20px; }
-        .invoice-box .header { background-color: #f7f7f7; font-weight: bold; }
-        .logo { text-align: center; margin-bottom: 20px; }
-      </style>
-    </head>
-    <body>
-      <div class="invoice-box">
-        <div class="logo">
-          <img src="data:image/png;base64,$base64Image" alt="Logo" style="width: 100px; height: 100px;">
-        </div>
-        <div class="title">Invoice Receipt</div>
-        <table>
-          <tr class="header">
-            <td>Field</td>
-            <td>Value</td>
-          </tr>
-          ${fields.map((field) => '''
-            <tr>
-              <td>${field.name}</td>
-              <td>${data[field.name] ?? 'N/A'}</td>
-            </tr>
-          ''').join('')}
-          <tr>
-            <td>Date</td>
-            <td>${data['date']}</td>
-          </tr>
-          <tr>
-            <td><strong>Total Amount</strong></td>
-            <td><strong>${data['Amount'] ?? '0'}</strong></td>
-          </tr>
-        </table>
-        <p style="text-align: center; margin-top: 20px;">Thank you for your business!</p>
-      </div>
-    </body>
-    </html>
-    ''';
+    if (selectedTemplate == 'Temple Fund Collection') {
+      return '''
+        <html>
+          <head>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+              body {
+                font-family: 'Roboto', sans-serif;
+                background: linear-gradient(135deg, #fff3e0 0%, #ffebee 100%);
+                padding: 30px;
+                margin: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+              }
+              .receipt-container {
+                width: 90%;
+                max-width: 600px;
+                background: #ffffff;
+                border-radius: 16px;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+                padding: 24px;
+                position: relative;
+                overflow: hidden;
+              }
+              .header {
+                text-align: center;
+                margin-bottom: 24px;
+                border-bottom: 2px solid #ffd700;
+                padding-bottom: 16px;
+              }
+              .header h1 {
+                color: #d32f2f;
+                font-size: 28px;
+                font-weight: 700;
+                margin: 0;
+                text-transform: uppercase;
+              }
+              .header h2 {
+                color: #1976d2;
+                font-size: 20px;
+                font-weight: 400;
+                margin: 8px 0 0;
+              }
+              .content {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 24px;
+                margin-bottom: 24px;
+              }
+              .left-section {
+                flex: 1;
+                min-width: 200px;
+                text-align: center;
+              }
+              .right-section {
+                flex: 1;
+                min-width: 200px;
+              }
+              .image-container img {
+                width: 120px;
+                height: auto;
+                border-radius: 8px;
+                margin-bottom: 16px;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+              }
+              .left-section p {
+                color: #424242;
+                font-size: 14px;
+                line-height: 1.6;
+                margin: 8px 0;
+              }
+              .right-section table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 16px;
+              }
+              .right-section td {
+                padding: 12px 8px;
+                font-size: 15px;
+                color: #212121;
+                border-bottom: 1px solid #eeeeee;
+              }
+              .right-section td:first-child {
+                font-weight: 700;
+                color: #d32f2f;
+              }
+              .right-section .bold {
+                font-weight: 700;
+                color: #1976d2;
+              }
+              .footer {
+                text-align: center;
+                margin-top: 24px;
+                padding-top: 16px;
+                border-top: 2px solid #ffd700;
+                color: #616161;
+                font-size: 13px;
+                font-style: italic;
+              }
+              .ornament {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 8px;
+                background: linear-gradient(90deg, #ffd700, #d32f2f);
+              }
+            </style>
+          </head>
+          <body>
+            <div class="receipt-container">
+              <div class="ornament"></div>
+              <div class="header">
+                <h1>Temple Fund Collection</h1>
+                <h2>Divine Contribution Receipt</h2>
+              </div>
+              <div class="content">
+                <div class="left-section">
+                  <div class="image-container">
+                    <img src="data:image/png;base64,$base64Image" alt="Deity Image" />
+                  </div>
+                  <p>Sacred Fund Collection</p>
+                  <p>Supporting the divine mission of our temple with your generous offerings.</p>
+                </div>
+                <div class="right-section">
+                  <table>
+                    <tr><td>Name:</td><td>${data['Name'] ?? 'N/A'}</td></tr>
+                    <tr><td>Age:</td><td>${data['Age'] ?? 'N/A'}</td></tr>
+                    <tr><td>Contact:</td><td>${data['Number'] ?? 'N/A'}</td></tr>
+                    <tr><td>Amount:</td><td class="bold">${data['Amount'] ?? '0'}</td></tr>
+                    <tr><td>Address:</td><td>${data['Address'] ?? 'N/A'}</td></tr>
+                    <tr><td>Date:</td><td>${data['Date'] ?? DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}</td></tr>
+                  </table>
+                </div>
+              </div>
+              <div class="footer">
+                <p>Blessings from the Temple Fund Committee</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      ''';
+    } else if (selectedTemplate == 'Treasurer Fund Collection') {
+      return '''
+        <html>
+          <head>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+              body {
+                font-family: 'Poppins', sans-serif;
+                background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+                padding: 30px;
+                margin: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+              }
+              .receipt-container {
+                width: 90%;
+                max-width: 600px;
+                background: #ffffff;
+                border-radius: 16px;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+                padding: 24px;
+                position: relative;
+                overflow: hidden;
+              }
+              .header {
+                background: linear-gradient(90deg, #388e3c, #4caf50);
+                padding: 16px;
+                border-radius: 12px 12px 0 0;
+                text-align: center;
+                color: #ffffff;
+                margin: -24px -24px 24px -24px;
+              }
+              .header img {
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                margin-bottom: 12px;
+                border: 3px solid #ffffff;
+              }
+              .header h2 {
+                font-size: 24px;
+                font-weight: 600;
+                margin: 0;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 16px;
+              }
+              th, td {
+                padding: 12px;
+                font-size: 15px;
+                border-bottom: 1px solid #e0e0e0;
+                text-align: left;
+              }
+              th {
+                background: #f5f5f5;
+                color: #388e3c;
+                font-weight: 600;
+              }
+              td.right {
+                text-align: right;
+                color: #212121;
+              }
+              .total-row td {
+                font-weight: 600;
+                color: #388e3c;
+              }
+              .footer {
+                text-align: center;
+                margin-top: 24px;
+                padding-top: 16px;
+                border-top: 2px solid #4caf50;
+                color: #616161;
+                font-size: 13px;
+              }
+              .ornament {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 6px;
+                background: linear-gradient(90deg, #4caf50, #388e3c);
+              }
+            </style>
+          </head>
+          <body>
+            <div class="receipt-container">
+              <div class="header">
+                <img src="data:image/png;base64,$base64Image" alt="College Logo"/>
+                <h2>Treasurer Fund Collection</h2>
+              </div>
+              <table>
+                <tr><th>${AppLocalizations.of(context)!.name}</th><td class="right">${data['Name'] ?? 'N/A'}</td></tr>
+                <tr><th>${AppLocalizations.of(context)!.age}</th><td class="right">${data['Age'] ?? 'N/A'}</td></tr>
+                <tr><th>${AppLocalizations.of(context)!.number}</th><td class="right">${data['Number'] ?? 'N/A'}</td></tr>
+                <tr><th>${AppLocalizations.of(context)!.amount}</th><td class="right">${data['Amount'] ?? '0'}</td></tr>
+                <tr><th>${AppLocalizations.of(context)!.address}</th><td class="right">${data['Address'] ?? 'N/A'}</td></tr>
+                <tr><th>${AppLocalizations.of(context)!.date}</th><td class="right">${data['Date'] ?? DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}</td></tr>
+                <tr class="total-row"><th>Total Contribution</th><td class="right">${data['Amount'] ?? '0'}</td></tr>
+              </table>
+              <div class="footer">
+                <p>Thank you for supporting our institution!</p>
+              </div>
+              <div class="ornament"></div>
+            </div>
+          </body>
+        </html>
+      ''';
+    } else {
+      return '''
+        <html>
+          <head>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap');
+              body {
+                font-family: 'Open Sans', sans-serif;
+                background: linear-gradient(135deg, #fef6ff 0%, #f3e5f5 100%);
+                padding: 30px;
+                margin: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+              }
+              .receipt-container {
+                width: 90%;
+                max-width: 600px;
+                background: #ffffff;
+                border-radius: 12px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+                padding: 24px;
+              }
+              .header {
+                text-align: center;
+                margin-bottom: 24px;
+              }
+              .header img {
+                width: 100px;
+                height: 100px;
+                margin-bottom: 12px;
+              }
+              .header h2 {
+                color: #512da8;
+                font-size: 24px;
+                font-weight: 600;
+                margin: 0;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 16px;
+              }
+              td {
+                padding: 12px;
+                font-size: 15px;
+                border-bottom: 1px solid #e0e0e0;
+              }
+              .right {
+                text-align: right;
+                color: #212121;
+              }
+              .footer {
+                text-align: center;
+                margin-top: 24px;
+                color: #616161;
+                font-size: 13px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="receipt-container">
+              <div class="header">
+                <img src="data:image/png;base64,$base64Image" alt="Logo"/>
+                <h2>Invoice Receipt</h2>
+              </div>
+              <table>
+                <tr><td>Name</td><td class="right">${data['Name'] ?? 'N/A'}</td></tr>
+                <tr><td>Age</td><td class="right">${data['Age'] ?? 'N/A'}</td></tr>
+                <tr><td>Number</td><td class="right">${data['Number'] ?? 'N/A'}</td></tr>
+                <tr><td>Amount</td><td class="right">${data['Amount'] ?? '0'}</td></tr>
+                <tr><td>Address</td><td class="right">${data['Address'] ?? 'N/A'}</td></tr>
+                <tr><td>Date</td><td class="right">${data['Date'] ?? DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}</td></tr>
+                <tr><td><strong>Total Amount</strong></td><td class="right"><strong>${data['Amount'] ?? '0'}</strong></td></tr>
+              </table>
+              <div class="footer">
+                <p>Thank you for your business!</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      ''';
+    }
   }
 
   void _showInvoiceInWebView(Map<String, String> data) async {
@@ -625,35 +980,108 @@ class _CollectionScreenState extends State<CollectionScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-          builder: (context) => InvoiceWebViewScreen(htmlContent: htmlContent)),
+        builder: (context) => InvoiceWebViewScreen(htmlContent: htmlContent),
+      ),
     );
   }
 
   Future<void> _exportToCsv() async {
     try {
-      if (savedData.isEmpty) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('No data to export')));
+      List<Map<String, String>> collectionInfo = savedData;
+
+      if (collectionInfo.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context)!.noDataToExport)),
+        );
         return;
       }
 
       List<List<dynamic>> csvData = [
-        savedData.first.keys.toList(),
-        ...savedData.map((entry) => entry.values.toList()),
+        collectionInfo.first.keys.toList(),
+        ...collectionInfo.map((entry) => entry.values.toList()),
       ];
 
       String csv = const ListToCsvConverter().convert(csvData);
-      final fileName =
-          'collection_${DateTime.now().millisecondsSinceEpoch}.csv';
-      final bytes = utf8.encode(csv);
 
-      await saveAndDownloadFile(
-          Uint8List.fromList(bytes), fileName, 'text/csv');
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('CSV exported successfully')));
+      if (kIsWeb) {
+        // Corrected to use kIsWeb without prefix
+        final bytes = utf8.encode(csv);
+        final blob = html.Blob([bytes], 'text/csv');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute('download',
+              'collection_${DateTime.now().millisecondsSinceEpoch}.csv')
+          ..click();
+        html.Url.revokeObjectUrl(url);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text(AppLocalizations.of(context)!.csvDownloadedBrowser)),
+        );
+      } else {
+        if (await Permission.storage.request().isDenied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text(AppLocalizations.of(context)!
+                    .storagePermissionRequiredCsv)),
+          );
+          return;
+        }
+
+        Directory? directory;
+        try {
+          directory = await getDownloadsDirectory();
+          if (directory == null) {
+            throw Exception(
+                AppLocalizations.of(context)!.downloadsDirectoryNotAvailable);
+          }
+        } catch (e) {
+          directory = await getApplicationDocumentsDirectory();
+        }
+
+        final fileName =
+            'collection_${DateTime.now().millisecondsSinceEpoch}.csv';
+        final file = File('${directory.path}/$fileName');
+
+        await directory.create(recursive: true);
+        await file.writeAsString(csv);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(AppLocalizations.of(context)!
+                  .csvExportedTo
+                  .replaceFirst('{path}', file.path))),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to export CSV: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!
+                .failedToExportCsv
+                .replaceFirst('{error}', e.toString()))),
+      );
+    }
+  }
+
+  String _getLocalizedFieldName(String key) {
+    final localizations = AppLocalizations.of(context)!;
+
+    switch (key.toLowerCase()) {
+      case 'name':
+        return localizations.name;
+      case 'age':
+        return localizations.age;
+      case 'number':
+        return localizations.number;
+      case 'amount':
+        return localizations.amount;
+      case 'address':
+        return localizations.address;
+      case 'date':
+        return localizations.date;
+      default:
+        return key;
     }
   }
 
@@ -664,83 +1092,53 @@ class _CollectionScreenState extends State<CollectionScreen> {
       itemCount: savedData.length,
       itemBuilder: (context, index) {
         return Card(
-          elevation: 4,
-          margin: EdgeInsets.symmetric(vertical: 8.0),
+          elevation: 2,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: ExpansionTile(
-            tilePadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          margin: EdgeInsets.symmetric(vertical: 6.0),
+          child: ListTile(
+            contentPadding: EdgeInsets.all(12),
             title: Text(
-              'Entry ${index + 1} - ${savedData[index]['Name'] ?? 'Unnamed'}',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              "${AppLocalizations.of(context)!.entry} ${index + 1}",
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: Text(
-              'Date: ${savedData[index]['date'] ?? 'N/A'}',
-              style: TextStyle(color: Colors.grey[600]),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: savedData[index].entries.map((e) {
+                final fieldLabel = _getLocalizedFieldName(e.key);
+                return Padding(
+                  padding: EdgeInsets.symmetric(vertical: 2),
+                  child: Text('$fieldLabel: ${e.value}'),
+                );
+              }).toList(),
             ),
-            children: [
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: savedData[index]
-                      .entries
-                      .map((e) => Padding(
-                            padding: EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('${e.key}:',
-                                    style:
-                                        TextStyle(fontWeight: FontWeight.w500)),
-                                Text(e.value,
-                                    style: TextStyle(color: Colors.blueAccent)),
-                              ],
-                            ),
-                          ))
-                      .toList(),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.remove_red_eye_outlined, color: Colors.blue),
+                  onPressed: () => _showInvoiceInWebView(savedData[index]),
                 ),
-              ),
-              Padding(
-                padding: EdgeInsets.all(8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    ElevatedButton.icon(
-                      icon: Icon(Icons.remove_red_eye_outlined, size: 18),
-                      label: Text('View'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueAccent,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
-                      onPressed: () => _showInvoiceInWebView(savedData[index]),
-                    ),
-                    SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      icon: Icon(Icons.print, size: 18),
-                      label: Text('Print'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueAccent,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
-                      onPressed: () =>
-                          _generateAndDownloadBill(savedData[index]),
-                    ),
-                    SizedBox(width: 8),
-                    IconButton(
-                      icon: Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _deleteData(index),
-                    ),
-                  ],
+                IconButton(
+                  icon: Icon(Icons.print, color: Colors.green),
+                  onPressed: () => _generateAndDownloadBill(savedData[index]),
                 ),
-              ),
-            ],
+                IconButton(
+                  icon: Icon(Icons.delete, color: Colors.redAccent),
+                  onPressed: () {
+                    setState(() {
+                      savedData.removeAt(index);
+                      dataBox.put('data', savedData);
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content:
+                              Text(AppLocalizations.of(context)!.entryDeleted)),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -750,101 +1148,55 @@ class _CollectionScreenState extends State<CollectionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: PreferredSize(
-        preferredSize: Size.fromHeight(56.0),
-        child: FutureBuilder<Uint8List>(
-          future: loadImageFromAssets('assets/images/logo.png'),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.done &&
-                snapshot.hasData) {
-              return AppBar(
-                backgroundColor: Colors.blue,
-                elevation: 4,
-                title: Row(
-                  children: [
-                    Image.memory(snapshot.data!, width: 24, height: 24),
-                    SizedBox(width: 8),
-                    Text(
-                      'Collection',
-                      style: TextStyle(color: Colors.white, fontSize: 20),
-                    ),
-                  ],
-                ),
-                actions: [
-                  IconButton(
-                    icon: Icon(Icons.download, size: 28, color: Colors.white),
-                    tooltip: 'Export to CSV',
-                    onPressed: _exportToCsv,
-                  ),
-                ],
-              );
-            } else {
-              return AppBar(
-                backgroundColor: Colors.blue,
-                elevation: 4,
-                title: Text(
-                  'Collection',
-                  style: TextStyle(color: Colors.white, fontSize: 20),
-                ),
-                actions: [
-                  IconButton(
-                    icon: Icon(Icons.download, size: 28, color: Colors.white),
-                    tooltip: 'Export to CSV',
-                    onPressed: _exportToCsv,
-                  ),
-                ],
-              );
-            }
-          },
-        ),
+      appBar: AppBar(
+        title: Text(AppLocalizations.of(context)!.collection),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.download),
+            onPressed: _exportToCsv,
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: SingleChildScrollView(
-                child: Card(
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      ...fields.map((field) => _buildField(field)).toList(),
+                      SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Add New Entry',
-                              style: Theme.of(context).textTheme.titleLarge),
-                          SizedBox(height: 16),
-                          ...fields.map((field) => _buildField(field)).toList(),
-                          SizedBox(height: 20),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              ElevatedButton.icon(
-                                icon: Icon(Icons.save),
-                                label: Text('Save'),
-                                onPressed: _saveData,
-                              ),
-                              TextButton.icon(
-                                icon: Icon(Icons.clear, color: Colors.red),
-                                label: Text('Clear All',
-                                    style: TextStyle(color: Colors.red)),
-                                onPressed: _clearAllFields,
-                              ),
-                            ],
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 24, vertical: 12),
+                            ),
+                            onPressed: _saveData,
+                            child: Text(AppLocalizations.of(context)!.save,
+                                style: TextStyle(
+                                    fontSize: 16, color: Colors.white)),
                           ),
-                          SizedBox(height: 20),
-                          Text('Saved Data',
-                              style: Theme.of(context).textTheme.titleLarge),
-                          SizedBox(height: 10),
-                          _buildSavedDataList(),
+                          TextButton(
+                            onPressed: _clearAllFields,
+                            child: Text(AppLocalizations.of(context)!.clear_all,
+                                style:
+                                    TextStyle(color: Colors.red, fontSize: 16)),
+                          ),
                         ],
                       ),
-                    ),
+                      SizedBox(height: 20),
+                      Text(AppLocalizations.of(context)!.saved_data,
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold)),
+                      _buildSavedDataList(),
+                    ],
                   ),
                 ),
               ),
@@ -865,14 +1217,22 @@ class InvoiceWebViewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Invoice Preview')),
+      appBar: AppBar(
+        title: Text(AppLocalizations.of(context)!.invoicePreview),
+      ),
       body: InAppWebView(
         initialData: InAppWebViewInitialData(
-            data: htmlContent, mimeType: 'text/html', encoding: 'utf-8'),
+          data: htmlContent,
+          mimeType: 'text/html',
+          encoding: 'utf-8',
+        ),
         initialOptions: InAppWebViewGroupOptions(
           crossPlatform: InAppWebViewOptions(
-              javaScriptEnabled: true, useShouldOverrideUrlLoading: true),
+            javaScriptEnabled: true,
+            useShouldOverrideUrlLoading: true,
+          ),
         ),
+        onWebViewCreated: (controller) {},
       ),
     );
   }
@@ -888,6 +1248,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
   String selectedFilter = "Today";
   String? selectedDate;
 
+  String getLocalizedField(String key) {
+    switch (key) {
+      case "Name":
+        return AppLocalizations.of(context)!.name;
+      case "Age":
+        return AppLocalizations.of(context)!.age;
+      case "Number":
+        return AppLocalizations.of(context)!.number;
+      case "Amount":
+        return AppLocalizations.of(context)!.amount;
+      case "Address":
+        return AppLocalizations.of(context)!.address;
+      case "date":
+        return AppLocalizations.of(context)!.date;
+      default:
+        return key;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -897,6 +1276,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   void _storeDummyData() {
     DateTime yesterday = DateTime.now().subtract(Duration(days: 1));
+    String formattedDate = DateFormat('yyyy-MM-dd').format(yesterday);
     List<dynamic>? existingData = collectionBox.get('data');
 
     if (existingData == null || existingData.isEmpty) {
@@ -906,8 +1286,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         "Number": "1234567890",
         "Amount": "500",
         "Address": "123 Poultry Street",
-        "Gender": "Male",
-        "date": DateFormat('yyyy-MM-dd HH:mm:ss').format(yesterday),
+        "Date": DateFormat('yyyy-MM-dd HH:mm:ss').format(yesterday),
       };
       setState(() {
         collectionBox.put('data', [dummyEntry]);
@@ -928,35 +1307,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
     if (specificDate != null) {
       return collectionInfo
           .where((entry) =>
-              entry["date"]?.toString().startsWith(specificDate) ?? false)
+              entry["Date"]?.toString().startsWith(specificDate) ?? false)
           .toList();
     }
 
     if (selectedFilter == "Today") {
       return collectionInfo
           .where(
-              (entry) => entry["date"]?.toString().startsWith(today) ?? false)
+              (entry) => entry["Date"]?.toString().startsWith(today) ?? false)
           .toList();
     } else if (selectedFilter == "Yesterday") {
       return collectionInfo
           .where((entry) =>
-              entry["date"]?.toString().startsWith(yesterday) ?? false)
-          .toList();
-    } else if (selectedFilter == "This Week") {
-      DateTime monday =
-          DateTime.now().subtract(Duration(days: DateTime.now().weekday - 1));
-      return collectionInfo
-          .where((entry) => DateTime.parse(entry["date"]!.substring(0, 10))
-              .isAfter(monday.subtract(Duration(days: 1))))
-          .toList();
-    } else if (selectedFilter == "This Month") {
-      DateTime firstDay =
-          DateTime(DateTime.now().year, DateTime.now().month, 1);
-      return collectionInfo
-          .where((entry) => DateTime.parse(entry["date"]!.substring(0, 10))
-              .isAfter(firstDay.subtract(Duration(days: 1))))
+              entry["Date"]?.toString().startsWith(yesterday) ?? false)
           .toList();
     }
+
     return collectionInfo;
   }
 
@@ -964,19 +1330,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
     List<Map<String, String>> filteredData =
         getFilteredCollectionInfo(specificDate: selectedDate);
 
+    String displayDate = DateFormat('dd-MMM-yyyy')
+        .format(DateFormat('yyyy-MM-dd').parse(selectedDate));
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
       builder: (context) {
         return Padding(
           padding: EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text("Data for $selectedDate",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text(
+                "${AppLocalizations.of(context)!.data_for} $displayDate",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               SizedBox(height: 10),
               filteredData.isNotEmpty
                   ? SizedBox(
@@ -987,21 +1359,38 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         itemBuilder: (context, index) {
                           return Card(
                             margin: EdgeInsets.symmetric(vertical: 4.0),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
                             child: ListTile(
-                              title: Text('Entry ${index + 1}'),
+                              title: Text(
+                                "${AppLocalizations.of(context)!.entry} ${index + 1}",
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                children: filteredData[index]
-                                    .entries
-                                    .map((e) => Text('${e.key}: ${e.value}'))
-                                    .toList(),
+                                children: filteredData[index].entries.map((e) {
+                                  String label = getLocalizedField(e.key);
+                                  String value = e.key == "Date"
+                                      ? DateFormat('dd-MMM-yyyy HH:mm:ss')
+                                          .format(
+                                              DateFormat('yyyy-MM-dd HH:mm:ss')
+                                                  .parse(e.value))
+                                      : e.value;
+                                  return Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 2),
+                                    child: Text('$label: $value'),
+                                  );
+                                }).toList(),
                               ),
                             ),
                           );
                         },
                       ),
                     )
-                  : Center(child: Text("No data available for this date.")),
+                  : Center(
+                      child:
+                          Text(AppLocalizations.of(context)!.no_data_available),
+                    ),
             ],
           ),
         );
@@ -1025,50 +1414,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  Future<void> _exportToCsv() async {
-    try {
-      List<Map<String, String>> collectionInfo = getFilteredCollectionInfo();
-      if (collectionInfo.isEmpty) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('No data to export')));
-        return;
-      }
-
-      List<List<dynamic>> csvData = [
-        collectionInfo.first.keys.toList(),
-        ...collectionInfo.map((entry) => entry.values.toList()),
-      ];
-
-      String csv = const ListToCsvConverter().convert(csvData);
-      final fileName =
-          'report_${selectedFilter}_${DateTime.now().millisecondsSinceEpoch}.csv';
-      final bytes = utf8.encode(csv);
-
-      await saveAndDownloadFile(
-          Uint8List.fromList(bytes), fileName, 'text/csv');
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Report exported successfully')));
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to export CSV: $e')));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     List<Map<String, String>> collectionInfo = getFilteredCollectionInfo();
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("Reports"),
+        title: Text(AppLocalizations.of(context)!.reports),
         centerTitle: true,
-        backgroundColor: Colors.blue,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.download),
-            onPressed: _exportToCsv,
-          ),
-        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -1076,16 +1429,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             ElevatedButton(
               onPressed: _pickDate,
-              child: Text(selectedDate ?? "Select Date"),
+              child: Text(
+                  selectedDate ?? AppLocalizations.of(context)!.select_date),
             ),
             SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              alignment: WrapAlignment.center,
               children: [
-                _filterButton("Today"),
-                _filterButton("Yesterday"),
-                _filterButton("This Week"),
-                _filterButton("This Month"),
+                _filterButton(AppLocalizations.of(context)!.today),
+                _filterButton(AppLocalizations.of(context)!.yesterday),
+                _filterButton(AppLocalizations.of(context)!.this_week),
+                _filterButton(AppLocalizations.of(context)!.this_month),
               ],
             ),
             SizedBox(height: 16),
@@ -1094,7 +1450,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                "Recent Collection",
+                AppLocalizations.of(context)!.recent_collection,
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -1112,7 +1468,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     )
                   : Center(
                       child: Text(
-                          "No data available for ${selectedDate ?? selectedFilter}")),
+                        AppLocalizations.of(context)!.no_data_available,
+                      ),
+                    ),
             ),
           ],
         ),
@@ -1124,16 +1482,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
-      crossAxisSpacing: 8,
-      mainAxisSpacing: 8,
-      childAspectRatio: 6,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      childAspectRatio: 4,
       physics: NeverScrollableScrollPhysics(),
       children: [
-        _summaryCard(
-            "Total Collection", _calculateTotal(collectionInfo, "count")),
-        _summaryCard("Previous Collection", _calculatePreviousTotal()),
-        _summaryCard("Total Clients", _calculateTotalClients(collectionInfo)),
-        _summaryCard("Total Payments", _calculateTotalPayments(collectionInfo)),
+        _summaryCard(AppLocalizations.of(context)!.total_collection,
+            _calculateTotal(collectionInfo, "count")),
+        _summaryCard(AppLocalizations.of(context)!.previous_collection,
+            _calculatePreviousTotal()),
+        _summaryCard(AppLocalizations.of(context)!.total_clients,
+            _calculateTotalClients(collectionInfo)),
+        _summaryCard(AppLocalizations.of(context)!.total_payments,
+            _calculateTotalPayments(collectionInfo)),
       ],
     );
   }
@@ -1143,8 +1504,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   String _calculateTotalPayments(List<Map<String, String>> collectionInfo) {
-    double total = collectionInfo.fold(0.0,
-        (sum, item) => sum + (double.tryParse(item["Amount"] ?? '0') ?? 0.0));
+    double total = collectionInfo.fold(0.0, (sum, item) {
+      return sum + (double.tryParse(item["Amount"] ?? '0') ?? 0.0);
+    });
     return total.toStringAsFixed(2);
   }
 
@@ -1155,26 +1517,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
         .map((item) => Map<String, String>.from(item as Map))
         .toList();
 
+    String filterDate = "";
+
     if (selectedFilter == "Today") {
       DateTime yesterday = now.subtract(Duration(days: 1));
-      String filterDate = DateFormat('yyyy-MM-dd').format(yesterday);
-      return collectionInfo
-          .where((entry) => entry["date"]?.startsWith(filterDate) ?? false)
-          .length
-          .toString();
+      filterDate = DateFormat('yyyy-MM-dd').format(yesterday);
     } else if (selectedFilter == "Yesterday") {
       DateTime lastWeekSameDay = now.subtract(Duration(days: 7));
-      String filterDate = DateFormat('yyyy-MM-dd').format(lastWeekSameDay);
-      return collectionInfo
-          .where((entry) => entry["date"]?.startsWith(filterDate) ?? false)
-          .length
-          .toString();
+      filterDate = DateFormat('yyyy-MM-dd').format(lastWeekSameDay);
     } else if (selectedFilter == "This Week") {
       DateTime lastMonday = now.subtract(Duration(days: now.weekday + 6));
       DateTime lastSunday = lastMonday.add(Duration(days: 6));
       return collectionInfo
           .where((entry) {
-            String date = entry["date"] ?? "";
+            String date = entry["Date"] ?? "";
             return date.compareTo(
                         DateFormat('yyyy-MM-dd').format(lastMonday)) >=
                     0 &&
@@ -1188,7 +1544,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       DateTime lastDayPrevMonth = DateTime(now.year, now.month, 0);
       return collectionInfo
           .where((entry) {
-            String date = entry["date"] ?? "";
+            String date = entry["Date"] ?? "";
             return date.compareTo(
                         DateFormat('yyyy-MM-dd').format(firstDayPrevMonth)) >=
                     0 &&
@@ -1199,7 +1555,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
           .length
           .toString();
     }
-    return "0";
+
+    return collectionInfo
+        .where((entry) => entry["Date"]?.startsWith(filterDate) ?? false)
+        .length
+        .toString();
   }
 
   String _calculateTotalClients(List<Map<String, String>> collectionInfo) {
@@ -1219,30 +1579,36 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _summaryCard(String title, String value) {
     return Container(
-      padding: EdgeInsets.all(6),
+      padding: EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.grey[300],
-        borderRadius: BorderRadius.circular(8),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(1, 1))
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
         ],
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(title,
-              style: TextStyle(
-                  color: Colors.black,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 11),
-              textAlign: TextAlign.center),
-          SizedBox(height: 2),
-          Text(value,
-              style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold)),
+          Text(
+            title,
+            style: TextStyle(
+                color: Colors.black87,
+                fontWeight: FontWeight.w600,
+                fontSize: 14),
+            textAlign: TextAlign.center,
+          ),
+          SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+                color: Colors.blue, fontSize: 18, fontWeight: FontWeight.bold),
+          ),
         ],
       ),
     );
@@ -1251,9 +1617,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget _filterButton(String text) {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
+        padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
         backgroundColor:
-            selectedFilter == text ? Colors.blue : Colors.grey[300],
+            selectedFilter == text ? Colors.blue : Colors.grey[200],
         foregroundColor: selectedFilter == text ? Colors.white : Colors.black,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       onPressed: () {
         setState(() {
@@ -1261,19 +1629,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
           selectedDate = null;
         });
       },
-      child: Text(text),
+      child: Text(text, style: TextStyle(fontSize: 14)),
     );
   }
 
   Widget _listItem(Map<String, String> item, int index) {
     return Card(
       margin: EdgeInsets.symmetric(vertical: 4.0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        title: Text('Entry ${index + 1}'),
+        contentPadding: EdgeInsets.all(12),
+        title: Text("${AppLocalizations.of(context)!.entry} ${index + 1}",
+            style: TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children:
-              item.entries.map((e) => Text('${e.key}: ${e.value}')).toList(),
+          children: item.entries.map((e) {
+            String label = getLocalizedField(e.key);
+            String value = e.value;
+            return Padding(
+              padding: EdgeInsets.symmetric(vertical: 2),
+              child: Text('$label: $value'),
+            );
+          }).toList(),
         ),
       ),
     );
